@@ -1,0 +1,12 @@
+[
+  {"external_id": "APP-1001", "email": "mara@creatorhub.io",   "handle": "@maravoices",    "platform": "youtube",   "followers": 184000},
+  {"external_id": "APP-1002", "email": "dan@creatorhub.io",    "handle": "danbuilds",      "platform": "tiktok",    "followers": 42500},
+  {"external_id": "APP-1003", "email": "luca@creatorhub.io",   "handle": "@lucaspeaks",    "platform": "instagram", "followers": 26100},
+  {"external_id": "APP-1004", "email": "sam@creatorhub.io",    "handle": "samreads",       "platform": "YouTube",   "followers": 61000},
+  {"external_id": "APP-1005", "email": "ines@creatorhub.io",   "handle": "inesaudio",      "platform": "tiktok",    "followers": 12400},
+  {"external_id": "APP-1006", "email": "theo@creatorhub.io",   "handle": "theotalks",      "platform": "youtube",   "followers": 900},
+  {"external_id": "APP-1007", "email": "nina@creatorhub.io",   "handle": "ninaloops",      "platform": "twitch",    "followers": 88000},
+  {"external_id": "APP-1008", "email": "not-an-email",         "handle": "brokenrecord",   "platform": "tiktok",    "followers": 33000},
+  {"external_id": "APP-1009", "email": "omar@creatorhub.io",   "handle": "omarnarrates",   "platform": "youtube",   "followers": -5},
+  {"external_id": "APP-1010", "email": "rue@nosuchmail.io",  "handle": "ruewrites",      "platform": "instagram", "followers": 74000}
+]
