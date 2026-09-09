@@ -1,0 +1,8 @@
+# Validation at the boundary. The only runtime dependency: the queue, the
+# retry policy and the storage layer are all standard library on purpose, so
+# that the machinery being demonstrated is readable rather than delegated.
+pydantic>=2.7
+email-validator>=2.1
+
+# Tests only.
+pytest>=8.0
