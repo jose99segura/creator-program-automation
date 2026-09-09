@@ -31,6 +31,20 @@ from .retry import PermanentError, TransientError
 from .steps import HANDLERS
 
 
+def _reschedule(conn: sqlite3.Connection, task: sqlite3.Row, error: str,
+                elapsed_ms: int) -> None:
+    """Retry the task, recording whether it survived to try again.
+
+    `queue.fail` decides between another attempt and the dead letter, so the
+    status written to `runs` has to follow that decision rather than assume
+    it: a task on its last attempt is recorded as ending permanently, even
+    though the failure that caused it was transient.
+    """
+    outcome = queue.fail(conn, task, error, permanent=False)
+    status = "transient" if outcome == "retry" else "permanent"
+    obs.record(conn, task["id"], task["kind"], status, elapsed_ms, error)
+
+
 def run_one(conn: sqlite3.Connection) -> bool:
     """Process a single due task. Returns False when the queue is empty."""
     task = queue.claim(conn)
@@ -61,16 +75,20 @@ def run_one(conn: sqlite3.Connection) -> bool:
         elapsed = int((time.monotonic() - started) * 1000)
         queue.fail(conn, task, str(exc), permanent=True)
         obs.record(conn, task["id"], task["kind"], "permanent", elapsed, str(exc))
-    except (TransientError, Exception) as exc:  # noqa: BLE001
+    except TransientError as exc:
+        elapsed = int((time.monotonic() - started) * 1000)
+        _reschedule(conn, task, f"{type(exc).__name__}: {exc}", elapsed)
+    except Exception as exc:  # noqa: BLE001 - unknown failures are retried
         # An unexpected exception is treated as transient on purpose. A real
         # bug will exhaust its attempts and land in the dead letter anyway,
         # whereas calling every unknown failure permanent would throw away
         # work that a fix and a replay could have recovered.
+        #
+        # Kept as its own clause rather than folded in with TransientError:
+        # the two arrive at the same behaviour for different reasons, and a
+        # reader should be able to see which one they are looking at.
         elapsed = int((time.monotonic() - started) * 1000)
-        error = f"{type(exc).__name__}: {exc}"
-        outcome = queue.fail(conn, task, error, permanent=False)
-        status = "transient" if outcome == "retry" else "permanent"
-        obs.record(conn, task["id"], task["kind"], status, elapsed, error)
+        _reschedule(conn, task, f"unexpected {type(exc).__name__}: {exc}", elapsed)
     else:
         elapsed = int((time.monotonic() - started) * 1000)
         queue.complete(conn, task["id"])

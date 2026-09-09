@@ -1,5 +1,7 @@
 # creator-program-automation
 
+[![tests](https://github.com/jose99segura/creator-program-automation/actions/workflows/ci.yml/badge.svg)](https://github.com/jose99segura/creator-program-automation/actions/workflows/ci.yml)
+
 A reference implementation of the automation layer behind a creator program:
 capture applicants, screen them, onboard them, track what they publish, and
 work out what they are owed.

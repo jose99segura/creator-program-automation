@@ -1,0 +1,27 @@
+# A repository about running unattended, whose own tests nobody runs, would be
+# making an argument it does not follow. This runs them on every push.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 3.10 is the floor: the code uses `X | None` annotations at runtime
+        # through pydantic, which needs it.
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+      # The demo is part of the suite in spirit: it is the only thing that
+      # exercises the retry path and the dead letter queue end to end against
+      # a provider that really fails.
+      - run: python -m creator_program demo
