@@ -377,15 +377,6 @@ active. `01a`, `02`, `04` and `06` are not, because their endpoints are still
 placeholders and an active workflow pointing at `example.invalid` generates
 real failures that teach nothing.
 
-- **Item pairing.** `01` avoids depending on n8n's `$('Node').item` pairing by
-  routing values through the database and through the API contract instead
-  (the posts endpoint must echo `tracking_code`). Pairing is the part of n8n
-  that breaks quietly under `splitOut` and error branches, and the avoidance
-  is deliberate — but the contract it depends on has not been exercised.
-- **Concurrency.** n8n in queue mode with several workers will run `01` twice
-  concurrently if a run overruns its schedule. Every write here is idempotent,
-  so that is survivable, but it has not been tested under it.
-
 ---
 
 ## Scaling, concretely
