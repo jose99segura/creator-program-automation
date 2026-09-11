@@ -1,0 +1,9 @@
+# A shell script checked out with CRLF does not run on Linux: the kernel reads
+# the shebang as "/usr/bin/env bash\r" and reports "bad interpreter: no such
+# file or directory", which sounds like a missing bash rather than a line
+# ending. Forced to LF so the deploy script survives the round trip through a
+# Windows checkout.
+*.sh text eol=lf
+
+# Same reason, less dramatic: these are read by tools on the box.
+*.sql text eol=lf
