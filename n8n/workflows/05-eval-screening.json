@@ -1,0 +1,239 @@
+{
+  "name": "05 eval screening",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a5000000-0000-4000-8000-000000000001",
+      "name": "Run the eval",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-880, 200],
+      "notes": "Run this before and after touching a threshold. The number on its own is close to meaningless; the number compared against the run before the change is the whole tool."
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "a5000000-0000-4000-8000-000000000002",
+      "name": "Every Monday",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-880, 400],
+      "notes": "Also on a schedule, because the rules are not the only thing that can change the score. An environment variable edited in Coolify, a threshold someone tuned in the editor, a normalisation that quietly changed: all of those move accuracy without a commit to look at."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- The previous score for this ruleset, so the run can tell whether it moved.\n-- Returns exactly one row even when there is no history, so the comparison\n-- downstream does not need to handle a missing node output.\nSELECT COALESCE(MAX(accuracy), 0)::float AS previous_accuracy,\n       COALESCE((SELECT macro_f1 FROM eval_runs\n                 ORDER BY started_at DESC LIMIT 1), 0)::float AS previous_macro_f1,\n       COUNT(*)::int AS history\nFROM eval_runs\nWHERE started_at = (SELECT MAX(started_at) FROM eval_runs);",
+        "options": {}
+      },
+      "id": "a5000000-0000-4000-8000-000000000003",
+      "name": "Previous eval",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [-660, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- The labelled set, as applications. The column names match what the rules\n-- expect, so the rows go straight in with no adapter node between them --\n-- and an adapter node is exactly where an eval starts measuring something\n-- other than what production runs.\nSELECT external_id, email, handle, platform, followers,\n       expected_decision, note\nFROM golden_set\nORDER BY external_id;",
+        "options": {}
+      },
+      "id": "a5000000-0000-4000-8000-000000000004",
+      "name": "Load golden set",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [-440, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_00_SCREENING_RULES_WORKFLOW_ID",
+          "mode": "id"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "a5000000-0000-4000-8000-000000000005",
+      "name": "Score with the real rules",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [-220, 300],
+      "notes": "The same workflow 01 calls in production, with the same environment variables. This is the only node in the repository that would be pointless to reimplement here, and it is the reason the ruleset is a sub-workflow at all: an eval that scores a copy of the rules measures the copy."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Accuracy, precision, recall, F1, and the confusion matrix.\n//\n// Four numbers rather than one, because accuracy alone lies in two specific\n// ways that matter here.\n//\n// It hides class imbalance: 22 of the 46 labels are 'rejected', so a rule\n// that rejected everything would score 0.48 while being worthless. Macro F1\n// averages the per-class F1 and gives that rule roughly 0.16, which is the\n// honest description.\n//\n// And it treats every mistake as equal, which they are not. Accepting\n// somebody who should have been rejected costs money; rejecting somebody who\n// should have been accepted costs a creator who never applies again. Those\n// are counted separately at the bottom and reported separately, because the\n// right trade between them is a business decision and not a rounding one.\n\nconst CLASSES = ['accepted', 'review', 'rejected', 'invalid'];\nconst r4 = (n) => (n === null ? null : Number(n.toFixed(4)));\n\nconst scored = $input.all().map((i) => i.json);\n\nconst cases = scored.map((row) => ({\n  external_id: row.external_id,\n  expected: row.expected_decision,\n  actual: row.decision,\n  correct: row.expected_decision === row.decision,\n  note: row.note ?? null,\n}));\n\nconst total = cases.length;\nif (total === 0) {\n  // An empty golden set would otherwise score 0/0 and report a cheerful 1.0.\n  throw new Error('golden set is empty: run n8n/sql/02-golden-set.sql');\n}\n\nconst correct = cases.filter((c) => c.correct).length;\nconst accuracy = correct / total;\n\nconst per_class = {};\nlet f1_sum = 0;\nlet classes_present = 0;\n\nfor (const cls of CLASSES) {\n  const tp = cases.filter((c) => c.actual === cls && c.expected === cls).length;\n  const fp = cases.filter((c) => c.actual === cls && c.expected !== cls).length;\n  const fn = cases.filter((c) => c.expected === cls && c.actual !== cls).length;\n  const support = tp + fn;\n\n  // null, not 0, when the denominator is empty. A class nothing was predicted\n  // for has undefined precision, and writing it down as 0 drags the macro\n  // average toward a number that describes an absence rather than a mistake.\n  const precision = tp + fp > 0 ? tp / (tp + fp) : null;\n  const recall = support > 0 ? tp / support : null;\n  const f1 = precision !== null && recall !== null && precision + recall > 0\n    ? (2 * precision * recall) / (precision + recall)\n    : (support > 0 ? 0 : null);\n\n  per_class[cls] = { precision: r4(precision), recall: r4(recall), f1: r4(f1),\n    support, tp, fp, fn };\n\n  if (support > 0) { f1_sum += f1 ?? 0; classes_present += 1; }\n}\n\nconst macro_f1 = classes_present > 0 ? f1_sum / classes_present : 0;\n\nconst confusion = {};\nfor (const c of cases) {\n  const key = `${c.expected}->${c.actual}`;\n  confusion[key] = (confusion[key] ?? 0) + 1;\n}\n\nconst failures = cases.filter((c) => !c.correct);\nconst false_accepts = failures.filter(\n  (c) => c.expected === 'rejected' && c.actual === 'accepted').length;\nconst false_rejects = failures.filter(\n  (c) => c.expected === 'accepted' && c.actual === 'rejected').length;\n\nconst prev = $('Previous eval').first().json;\nconst thresholds = scored[0]?.thresholds ?? {};\n\nreturn [{ json: {\n  ruleset_version: scored[0]?.ruleset_version ?? 'unknown',\n  total,\n  correct,\n  accuracy: r4(accuracy),\n  macro_f1: r4(macro_f1),\n  per_class,\n  confusion,\n  false_accepts,\n  false_rejects,\n  config: { ...thresholds, golden_set_size: total },\n  previous_accuracy: prev.previous_accuracy ?? 0,\n  delta: r4(accuracy - (prev.previous_accuracy ?? 0)),\n  has_history: (prev.history ?? 0) > 0,\n  // Capped, because the report is a message and not a database dump. The\n  // full list is in eval_cases, which is the point of storing them.\n  failures: failures.slice(0, 10),\n  cases,\n} }];"
+      },
+      "id": "a5000000-0000-4000-8000-000000000006",
+      "name": "Compare",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO eval_runs\n  (ruleset_version, execution_id, total, correct, accuracy, macro_f1,\n   per_class, config)\nVALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb)\nRETURNING id, accuracy, macro_f1;",
+        "options": {
+          "queryReplacement": "={{ [$json.ruleset_version, $execution.id, $json.total, $json.correct, $json.accuracy, $json.macro_f1, JSON.stringify($json.per_class), JSON.stringify($json.config)] }}"
+        }
+      },
+      "id": "a5000000-0000-4000-8000-000000000007",
+      "name": "Store the score",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [220, 300],
+      "notes": "Appended, never updated, and stamped with the ruleset version and the thresholds it ran under. Overwriting a single 'current accuracy' row makes every question about direction unanswerable, and direction is the only thing this number is good for."
+    },
+    {
+      "parameters": {
+        "jsCode": "// One item per case, carrying the run id the insert just returned.\n//\n// Storing the cases and not only the score is what makes a regression\n// actionable. 'Accuracy fell from 0.87 to 0.80' is an alert; 'these four\n// rows flipped from review to rejected' is a fix.\nconst runId = $input.first().json.id;\nconst cases = $('Compare').first().json.cases;\n\nreturn cases.map((c) => ({ json: { eval_run_id: runId, ...c } }));"
+      },
+      "id": "a5000000-0000-4000-8000-000000000008",
+      "name": "One item per case",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO eval_cases\n  (eval_run_id, external_id, expected, actual, correct, note)\nVALUES ($1, $2, $3, $4, $5, $6);",
+        "options": {
+          "queryReplacement": "={{ [$json.eval_run_id, $json.external_id, $json.expected, $json.actual, $json.correct, $json.note] }}"
+        }
+      },
+      "id": "a5000000-0000-4000-8000-000000000009",
+      "name": "Store the cases",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c5000000-0000-4000-8000-000000000001",
+              "leftValue": "={{ $('Compare').first().json.has_history && $('Compare').first().json.delta < -0.02 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a5000000-0000-4000-8000-00000000000a",
+      "name": "Regressed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [880, 300],
+      "executeOnce": true,
+      "notes": "A two point drop, not any drop. On 46 cases one row is 2.2 points, so a tighter threshold would fire on normal movement and get muted within a month. The tolerance is a function of the dataset size, and it has to move when the dataset does."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ALERT_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: `SCREENING REGRESSED\\nruleset ${$('Compare').first().json.ruleset_version}\\naccuracy ${$('Compare').first().json.accuracy} (was ${$('Compare').first().json.previous_accuracy}, ${$('Compare').first().json.delta})\\nmacro F1 ${$('Compare').first().json.macro_f1}\\nfalse accepts ${$('Compare').first().json.false_accepts}, false rejects ${$('Compare').first().json.false_rejects}\\nflipped: ${$('Compare').first().json.failures.map(f => `${f.external_id} ${f.expected}->${f.actual}`).join(', ')}` }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "a5000000-0000-4000-8000-00000000000b",
+      "name": "Alert the regression",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 200],
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ALERT_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: `screening eval: ${$('Compare').first().json.correct}/${$('Compare').first().json.total} correct, accuracy ${$('Compare').first().json.accuracy}, macro F1 ${$('Compare').first().json.macro_f1}, delta ${$('Compare').first().json.delta}. false accepts ${$('Compare').first().json.false_accepts}, false rejects ${$('Compare').first().json.false_rejects}.` }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "a5000000-0000-4000-8000-00000000000c",
+      "name": "Report the score",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 400],
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "notes": "The score is reported whether or not it moved. A quality metric you only hear about when it drops is one nobody has a sense of, and without that sense the first drop reads as noise."
+    }
+  ],
+  "connections": {
+    "Run the eval": {
+      "main": [[{ "node": "Previous eval", "type": "main", "index": 0 }]]
+    },
+    "Every Monday": {
+      "main": [[{ "node": "Previous eval", "type": "main", "index": 0 }]]
+    },
+    "Previous eval": {
+      "main": [[{ "node": "Load golden set", "type": "main", "index": 0 }]]
+    },
+    "Load golden set": {
+      "main": [[{ "node": "Score with the real rules", "type": "main", "index": 0 }]]
+    },
+    "Score with the real rules": {
+      "main": [[{ "node": "Compare", "type": "main", "index": 0 }]]
+    },
+    "Compare": {
+      "main": [[{ "node": "Store the score", "type": "main", "index": 0 }]]
+    },
+    "Store the score": {
+      "main": [[{ "node": "One item per case", "type": "main", "index": 0 }]]
+    },
+    "One item per case": {
+      "main": [[{ "node": "Store the cases", "type": "main", "index": 0 }]]
+    },
+    "Store the cases": {
+      "main": [[{ "node": "Regressed?", "type": "main", "index": 0 }]]
+    },
+    "Regressed?": {
+      "main": [
+        [{ "node": "Alert the regression", "type": "main", "index": 0 }],
+        [{ "node": "Report the score", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "REPLACE_WITH_03_ERROR_HANDLER_WORKFLOW_ID",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "timezone": "Europe/Madrid"
+  },
+  "pinData": {}
+}

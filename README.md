@@ -294,8 +294,12 @@ creator_program/
   runner.py                the worker loop and failure classification
   steps/                   ingest, screen, onboard, track, payout
   providers/               a fake platform API and mailer, which fail on purpose
-tests/                     payouts, the retry path, validation
-n8n/creator-program.json   the same pipeline as an n8n workflow
+tests/                     payouts, the retry path, validation, the n8n graphs
+n8n/                       the same pipeline as seven n8n workflows
+  README.md                what each one proves, and how to set them up
+  sql/                     the Postgres schema and the labelled dataset
+  workflows/               00 rules, 01 pipeline, 02 payout, 03 errors,
+                           04 replay, 05 eval, 06 digest
 ```
 
 ## Tests
@@ -304,28 +308,45 @@ n8n/creator-program.json   the same pipeline as an n8n workflow
 python -m pytest -q
 ```
 
-25 tests, weighted towards the two places where a bug is expensive: the payout
+77 tests, weighted towards the two places where a bug is expensive: the payout
 arithmetic and the failure path. The failure path is the half of any
 automation that only runs when things break, and therefore the half most
 likely to be broken without anyone noticing.
 
 ## The n8n version
 
-`n8n/creator-program.json` is the same pipeline as an importable workflow, for
+[`n8n/`](n8n/README.md) is the same pipeline built as seven n8n workflows, for
 the case where the team already runs n8n and a Python service would be a new
-thing to operate. The mapping is direct:
+thing to operate. The mapping of the machinery is direct:
 
 | Python | n8n |
 |---|---|
 | `retry.py` | `retryOnFail`, `maxTries`, `waitBetweenTries` on the HTTP nodes |
 | `PermanentError` | the error output of a node, routed away from the retry path |
-| `dead_letters` | the **Dead letter** Postgres node every error output feeds |
-| one alert per run | `executeOnce` on the alert node |
+| `queue.py` | n8n itself: executions, retries and wait states |
+| `dead_letters` | still a table -- n8n's retry re-runs the whole trigger, not one item |
+| `runner.py` catching everything | an Error Trigger workflow set on every workflow |
+| one alert per run | `executeOnce`, plus a fifteen minute suppression window |
 | `INSERT OR IGNORE` | `ON CONFLICT DO NOTHING` in the same statements |
 
-It is structurally valid and the node graph is consistent, but it has not been
-run against a live n8n instance, so treat it as the design rather than a
-tested artifact. The Python side is the tested one.
+Two things it has that the Python side does not, because n8n forced the
+question:
+
+**The business rules are their own workflow.** There is no import statement in
+n8n, so shared logic is either a workflow boundary or it is copy-paste. `00
+screening rules` is called by the pipeline and by the eval, which is the only
+reason the eval measures the code production runs rather than a copy of it.
+
+**The decision has a measured accuracy.** `05 eval screening` scores the rules
+against 46 hand-labelled applications and writes accuracy, macro F1, per-class
+precision and recall, and the confusion matrix to a table on every run. Seven
+of those labels disagree with the current thresholds on purpose: a golden set
+generated from the rules scores 1.0 for ever and measures nothing.
+
+The graphs are structurally validated in CI -- connections, reachability,
+unconnected error outputs, and the fact that the ruleset appears in exactly
+one file. They have **not** been run against a live n8n instance. Treat that
+directory as a reviewed design; the Python side is the tested one.
 
 ## Configuration
 
