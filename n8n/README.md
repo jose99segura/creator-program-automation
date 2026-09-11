@@ -232,6 +232,46 @@ One consequence to know: if these ids ever collide with a workflow already in
 your n8n, the import overwrites it. They are namespaced with `creator` for
 that reason.
 
+### 3b. Folders live in the instance, not in this directory
+
+In n8n they are grouped under one `creator program` folder, by the argument
+each one makes rather than by execution order:
+
+```
+creator program/
+  pipeline/         00 rules, 01 pipeline, 01a poller, 02 payout
+  reliability/      03 error handler, 04 dead letter replay
+  observability/    05 eval screening, 06 health digest
+```
+
+`workflows/` here stays **flat**, and that is a decision rather than laziness:
+
+```
+$ n8n import:workflow --separate --input=/tmp/nest    # file one level down
+Importing 0 workflows...
+Successfully imported 0 workflows.
+```
+
+`import:workflow` does not recurse. Subfoldering this directory would make
+`deploy.sh` import nothing and report success — a silent no-op deploy, which is
+the exact failure shape the rest of this repository exists to argue against.
+The numeric prefixes already give the files their order, and the grouping that
+helps a reader is in the table at the top of this file.
+
+Two things a re-import does and does not preserve, both worth knowing before
+you run `deploy.sh` against a live instance:
+
+| | Survives a re-import |
+|---|---|
+| Folder placement | yes |
+| Credential assignment | yes, it is in the JSON |
+| `active` | **no** — every workflow comes back inactive |
+
+So a deploy silently stops your automations until you reactivate them. The
+folder tree is not in this repository because it survives, and because it is
+one `UPDATE` against n8n's own database, which is not a thing to put in a
+deploy path that runs regularly.
+
 ### 4. Activate, then make it fail on purpose
 
 Activating is not the last step. An automation whose failure path has never

@@ -136,8 +136,11 @@ Two things are still manual, and both are deliberate:
      failure path does not work, and that is half of what is in this
      directory.
 
-And one thing that is not optional, because import leaves everything
-inactive -- including workflows that were active before a re-import:
+Folder placement and credential assignment both survive a re-import, so the
+grouping in the n8n UI is not something this script has to rebuild.
+
+Activation does not survive, and that is not optional to fix -- a deploy
+silently stops every automation until you run these:
 
   n8n update:workflow --id creatorRules0000 --active=true
   n8n update:workflow --id creatorPipeline1 --active=true
