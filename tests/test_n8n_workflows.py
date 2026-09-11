@@ -58,7 +58,7 @@ def strip_comments(code: str) -> str:
 
 def test_there_are_workflows() -> None:
     """A glob that silently matches nothing turns every test below green."""
-    assert len(WORKFLOWS) >= 8, f"expected the full set, found {len(WORKFLOWS)}"
+    assert len(WORKFLOWS) >= 9, f"expected the full set, found {len(WORKFLOWS)}"
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)

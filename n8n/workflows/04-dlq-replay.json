@@ -208,7 +208,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO runs\n  (workflow_id, execution_id, kind, status, item_count, duration_ms)\nVALUES ($1, $2, 'replay', 'ok', 1,\n        $3);",
         "options": {
-          "queryReplacement": "={{ [$workflow.id, $execution.id, Date.now() - new Date($execution.startedAt).getTime()] }}"
+          "queryReplacement": "={{ [$workflow.id, $execution.id, (Math.round(Date.now() - new Date($execution.startedAt ?? Date.now()).getTime()) || 0)] }}"
         }
       },
       "id": "a4000000-0000-4000-8000-00000000000b",

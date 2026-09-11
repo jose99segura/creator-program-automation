@@ -84,7 +84,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO runs\n  (workflow_id, execution_id, kind, status, item_count, duration_ms)\nVALUES ($1, $2, 'digest', $3, 1,\n        $4);",
         "options": {
-          "queryReplacement": "={{ [$workflow.id, $execution.id, $('Compose the digest').first().json.silent ? 'permanent' : 'ok', Date.now() - new Date($execution.startedAt).getTime()] }}"
+          "queryReplacement": "={{ [$workflow.id, $execution.id, $('Compose the digest').first().json.silent ? 'permanent' : 'ok', (Math.round(Date.now() - new Date($execution.startedAt ?? Date.now()).getTime()) || 0)] }}"
         }
       },
       "id": "a6000000-0000-4000-8000-000000000005",

@@ -246,19 +246,16 @@
     },
     {
       "parameters": {
-        "fieldToSplitOut": "data",
-        "include": "allOtherFields",
-        "options": {}
+        "jsCode": "// One item per post, with the creator's tracking code on each.\n//\n// A splitOut node with include: allOtherFields was here first, and it\n// does something subtly different from what it looks like: rather than\n// spreading each post's fields to the top level, it nests the post under\n// `data` to avoid colliding with the fields it is carrying over. So\n// $json.external_id was undefined and every insert died on a NOT NULL\n// column -- while the node itself reported two items out and looked\n// perfectly healthy.\n//\n// Written out, the shape is the shape. Six lines of JavaScript are worth\n// more than a node whose output you have to go and inspect to believe.\n\nconst out = [];\n\nfor (const item of $input.all()) {\n  const code = item.json.tracking_code;\n  for (const post of item.json.data ?? []) {\n    out.push({ json: { tracking_code: code, ...post } });\n  }\n}\n\nreturn out;"
       },
       "id": "a1000000-0000-4000-8000-00000000000b",
       "name": "One item per post",
-      "type": "n8n-nodes-base.splitOut",
-      "typeVersion": 1,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1320,
         140
-      ],
-      "notes": "include: allOtherFields is what carries the echoed tracking_code onto each post."
+      ]
     },
     {
       "parameters": {
@@ -301,7 +298,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO runs\n  (workflow_id, execution_id, kind, status, item_count, duration_ms)\nVALUES ($1, $2, 'pipeline', 'ok', $3, $4);",
         "options": {
-          "queryReplacement": "={{ [$workflow.id, $execution.id, $input.all().length, Date.now() - new Date($execution.startedAt).getTime()] }}"
+          "queryReplacement": "={{ [$workflow.id, $execution.id, $input.all().length, (Math.round(Date.now() - new Date($execution.startedAt ?? Date.now()).getTime()) || 0)] }}"
         }
       },
       "id": "a1000000-0000-4000-8000-00000000000e",
@@ -327,7 +324,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO dead_letters\n  (workflow_id, workflow_name, execution_id, execution_url, node, kind,\n   payload, attempts, error, reason)\nVALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10);",
         "options": {
-          "queryReplacement": "={{ [$workflow.id, $workflow.name, $execution.id, `${$('Config').first().json.config.editor_base_url}/workflow/${$workflow.id}/executions/${$execution.id}`, $prevNode.name, ({ 'Valid?': 'screen', 'Send welcome email': 'onboard', 'Fetch posts': 'track' })[$prevNode.name] || 'unknown', JSON.stringify($json), $json.valid === false ? 1 : 4, $json.reason || $json.error?.message || String($json.error || 'unclassified failure'), $json.valid === false ? 'invalid' : 'exhausted'] }}"
+          "queryReplacement": "={{ [$workflow.id, $workflow.name, $execution.id, `${$('Config').first().json.config.editor_base_url}/workflow/${$workflow.id}/executions/${$execution.id}`, $prevNode.name, ({ 'Valid?': 'screen', 'Send welcome email': 'onboard', 'Fetch posts': 'track' })[$prevNode.name] || 'unknown', JSON.stringify($json), $json.valid === false ? 1 : 4, ($json.reason ?? $json.error?.message ?? $json.error?.description ?? (typeof $json.error === 'string' ? $json.error : JSON.stringify($json.error ?? 'unclassified failure'))).slice(0, 500), $json.valid === false ? 'invalid' : 'exhausted'] }}"
         }
       },
       "id": "a1000000-0000-4000-8000-00000000000f",

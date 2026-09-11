@@ -87,8 +87,9 @@
           "mode": "id"
         },
         "options": {
-          "waitForSubWorkflow": false
-        }
+          "waitForSubWorkflow": true
+        },
+        "mode": "each"
       },
       "id": "aa000000-0000-4000-8000-000000000005",
       "name": "Into the pipeline",
@@ -99,14 +100,14 @@
         220
       ],
       "onError": "continueErrorOutput",
-      "notes": "waitForSubWorkflow is FALSE here, unlike everywhere else in this repository, and it is the one place that is right.\n\nWaiting would serialise four hundred applicants behind one another and hold this execution open for the total. Not waiting means each applicant is an independent execution that succeeds or fails on its own -- which is the point of the split -- and it is safe precisely because the pipeline reports its own failures: it writes its own dead letters and 03 catches whatever it does not. The poller does not need to hear back to be sure nothing was lost.\n\nThe error output here therefore catches something narrower: a failure to *start* the sub-workflow at all."
+      "notes": "mode 'each' and waitForSubWorkflow true, and both corrections cost a first deployment to find.\n\nThe default mode is 'once': one sub-execution receives all four hundred applicants as items. The claim that each applicant gets its own execution was simply false until this was set -- the shape looked right in the diagram and the engine was doing something else.\n\nwaitForSubWorkflow was false on the theory that not waiting buys parallelism. It does not here: n8n runs 'each' sequentially either way, so the only thing false bought was losing the error output. Detached sub-executions started and ran zero nodes, reported success, and wrote nothing -- a green run that did not happen, which is the worst outcome available. True means a failed applicant comes back to this node's error output and lands in the dead letter.\n\nTen applicants in sequence is not a bottleneck. When it becomes one, the answer is n8n queue mode, not fire and forget."
     },
     {
       "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO runs\n  (workflow_id, execution_id, kind, status, item_count, duration_ms)\nVALUES ($1, $2, 'ingest', 'ok', $3, $4);",
         "options": {
-          "queryReplacement": "={{ [$workflow.id, $execution.id, $input.all().length, Date.now() - new Date($execution.startedAt).getTime()] }}"
+          "queryReplacement": "={{ [$workflow.id, $execution.id, $input.all().length, (Math.round(Date.now() - new Date($execution.startedAt ?? Date.now()).getTime()) || 0)] }}"
         }
       },
       "id": "aa000000-0000-4000-8000-000000000006",
@@ -132,7 +133,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO dead_letters\n  (workflow_id, workflow_name, execution_id, execution_url, node, kind,\n   payload, attempts, error, reason)\nVALUES ($1, $2, $3, $4, $5, 'ingest', $6::jsonb, 4, $7, 'exhausted');",
         "options": {
-          "queryReplacement": "={{ [$workflow.id, $workflow.name, $execution.id, `${$('Config').first().json.config.editor_base_url}/workflow/${$workflow.id}/executions/${$execution.id}`, $prevNode.name, JSON.stringify($json), $json.error?.message || String($json.error || 'unclassified failure')] }}"
+          "queryReplacement": "={{ [$workflow.id, $workflow.name, $execution.id, `${$('Config').first().json.config.editor_base_url}/workflow/${$workflow.id}/executions/${$execution.id}`, $prevNode.name, JSON.stringify($json), ($json.error?.message ?? $json.error?.description ?? (typeof $json.error === 'string' ? $json.error : JSON.stringify($json.error ?? 'unclassified failure'))).slice(0, 500)] }}"
         }
       },
       "id": "aa000000-0000-4000-8000-000000000007",

@@ -1,0 +1,356 @@
+{
+  "id": "creatorFakes0009",
+  "name": "09 fake providers",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "creator-program/fake/applications",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a9000000-0000-4000-8000-000000000001",
+      "name": "Applications endpoint",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        80
+      ],
+      "notes": "Stands in for the application form export. This whole workflow is providers/platform.py and providers/mailer.py from the Python side: a source that exists so the failure path can be made to run on demand, rather than waiting for a real provider to have a bad day.",
+      "webhookId": "d9000000-0000-4000-8000-00000000a001"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ten applications, chosen so that one poll exercises every branch of the\n// pipeline at once. A test batch where everything is valid and everything is\n// accepted proves only that the happy path works, which was never in doubt.\n//\n// 3 accepted, 3 review, 2 rejected, 2 malformed.\nconst batch = [\n  { external_id: 'demo-01', email: 'ana@example.com',   handle: 'anacooks',   platform: 'youtube',   followers: 142000 },\n  { external_id: 'demo-02', email: 'ben@example.com',   handle: '@benbuilds', platform: 'TikTok',    followers: 88000  },\n  { external_id: 'demo-03', email: 'cara@example.com',  handle: 'caradraws',  platform: ' instagram ', followers: 51000 },\n  { external_id: 'demo-04', email: 'jack@example.com',  handle: 'jackjams',   platform: 'tiktok',    followers: 12000  },\n  { external_id: 'demo-05', email: 'kim@example.com',   handle: 'kimknits',   platform: 'instagram', followers: 8200   },\n  { external_id: 'demo-06', email: 'nia@example.com',   handle: 'niaknows',   platform: 'youtube',   followers: 15750  },\n  { external_id: 'demo-07', email: 'quin@example.com',  handle: 'quinquilts', platform: 'tiktok',    followers: 1200   },\n  { external_id: 'demo-08', email: 'rosa@example.com',  handle: 'rosaruns',   platform: 'instagram', followers: 84     },\n  // The two below are the point of the batch. Neither is an outage; both are\n  // data, and both must land in dead_letters as 'invalid' without being\n  // retried, because they will be exactly as wrong in five seconds.\n  { external_id: 'demo-09', email: 'not-an-email',      handle: 'wesworks',   platform: 'youtube',   followers: 30000  },\n  { external_id: 'demo-10', email: 'xena@example.com',  handle: 'xenaxplores', platform: 'twitch',   followers: 45000  },\n];\n\n// demo-02, 03 also check normalisation on the way in: a leading @, a capital\n// letter and stray whitespace must all survive as the same person.\nreturn [{ json: { data: batch, generated_at: new Date().toISOString() } }];"
+      },
+      "id": "a9000000-0000-4000-8000-000000000002",
+      "name": "Make applications",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -440,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "a9000000-0000-4000-8000-000000000003",
+      "name": "Respond applications",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -220,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "path": "creator-program/fake/platform/posts",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a9000000-0000-4000-8000-000000000004",
+      "name": "Posts endpoint",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        280
+      ],
+      "notes": "The platform API. Called once per creator, with ?tracking_code=CP-xxxx.",
+      "webhookId": "d9000000-0000-4000-8000-00000000a002"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fails a quarter of its calls on purpose.\n//\n// This is the single most useful thing in this workflow. An automation whose\n// failure path has never run is an automation whose failure path does not\n// work, and the failure path only runs on the days you are not watching. So\n// the provider is made unreliable deliberately, and the retries, the error\n// output, the dead letter and the alert all execute on an ordinary afternoon\n// instead of during a real outage.\n//\n// Random rather than seeded, unlike the Python version, and that is the right\n// choice here: across four retries and several polls you get the full range\n// -- calls that fail once and then succeed, and calls that exhaust every\n// attempt and land in the dead letter. A fixed seed would show you one of\n// those and hide the other.\nconst FAILURE_RATE = 0.25;\n\nconst code = $json.query?.tracking_code ?? '';\n\nif (!code) {\n  // A 400, not a 500. The pipeline should not retry a request that was wrong\n  // to begin with, and the distinction is the whole of retry.py.\n  return [{ json: { fail: true, status: 400,\n    body: { error: 'tracking_code is required' } } }];\n}\n\nif (Math.random() < FAILURE_RATE) {\n  return [{ json: { fail: true, status: 503,\n    body: { error: 'platform API temporarily unavailable' } } }];\n}\n\n// Between one and three posts, with view counts big enough to clear the\n// minimum payout so that the money path has something to compute.\nconst n = 1 + Math.floor(Math.random() * 3);\nconst posts = [];\nfor (let i = 1; i <= n; i++) {\n  posts.push({\n    external_id: `${code}-post-${i}`,\n    url: `https://example.com/${code.toLowerCase()}/${i}`,\n    // Spread over the last 60 days, so the monthly payout job has\n    // something in the previous period to compute. Posts from the last\n    // three days only would make every payout run correctly return\n    // nothing, which is indistinguishable from a broken one.\n    published_at: new Date(Date.now() - Math.floor(Math.random() * 60) * 86400000).toISOString(),\n    views: 4000 + Math.floor(Math.random() * 90000),\n  });\n}\n\n// tracking_code is echoed at the top level. That is the contract 01 depends\n// on: it is what carries the code onto every post without relying on n8n's\n// item pairing, which is the part of n8n that breaks quietly.\nreturn [{ json: { fail: false, status: 200,\n  body: { tracking_code: code, data: posts } } }];"
+      },
+      "id": "a9000000-0000-4000-8000-000000000005",
+      "name": "Fail a quarter of the time",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -440,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c9000000-0000-4000-8000-000000000001",
+              "leftValue": "={{ $json.fail }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a9000000-0000-4000-8000-000000000006",
+      "name": "Failing this time?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -220,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      },
+      "id": "a9000000-0000-4000-8000-000000000007",
+      "name": "Respond with a failure",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        200
+      ],
+      "notes": "503 for a provider having a bad minute, 400 for a request that was wrong. The pipeline retries the first and must not retry the second."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "id": "a9000000-0000-4000-8000-000000000008",
+      "name": "Respond with posts",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "creator-program/fake/mail/send",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a9000000-0000-4000-8000-000000000009",
+      "name": "Mail endpoint",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        500
+      ],
+      "notes": "Accepts the welcome email and does nothing with it. Deliberately reliable: the posts endpoint already exercises the retry path, and a second unreliable provider would only make it harder to tell which failure you are looking at.",
+      "webhookId": "d9000000-0000-4000-8000-00000000a003"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Records what would have been sent, so the demo can show that the email\n// carried the right tracking code without anything actually leaving the box.\nconst body = $json.body ?? {};\n\nreturn [{ json: {\n  accepted: true,\n  to: body.to ?? null,\n  template: body.template ?? null,\n  tracking_code: body.tracking_code ?? null,\n  // 01 sends this derived from the tracking code. A provider that honours it\n  // would not send twice on a retry, which is why it is here to be seen.\n  idempotency_key: body.idempotency_key ?? null,\n  received_at: new Date().toISOString(),\n} }];"
+      },
+      "id": "a9000000-0000-4000-8000-00000000000a",
+      "name": "Accept the mail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -440,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "a9000000-0000-4000-8000-00000000000b",
+      "name": "Respond mail",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -220,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "creator-program/fake/alerts",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a9000000-0000-4000-8000-00000000000c",
+      "name": "Alerts endpoint",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        700
+      ],
+      "webhookId": "d9000000-0000-4000-8000-00000000a004",
+      "notes": "Stands in for Slack. It exists because an empty alert URL is not a quiet alert channel -- it is an HTTP node that throws 'Invalid URL' and takes the run down with it, which the first deployment demonstrated. An alerting path that can fail the work it was meant to report on is the worst possible bug in this repository, and this endpoint is how the demo keeps it honest."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Swallows the alert and echoes it back, so a run can be inspected\n// afterwards to see exactly what would have been posted to Slack.\nreturn [{ json: {\n  delivered: true,\n  text: $json.body?.text ?? null,\n  received_at: new Date().toISOString(),\n} }];"
+      },
+      "id": "a9000000-0000-4000-8000-00000000000d",
+      "name": "Swallow the alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -440,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "a9000000-0000-4000-8000-00000000000e",
+      "name": "Respond alerts",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -220,
+        700
+      ]
+    }
+  ],
+  "connections": {
+    "Applications endpoint": {
+      "main": [
+        [
+          {
+            "node": "Make applications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Make applications": {
+      "main": [
+        [
+          {
+            "node": "Respond applications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posts endpoint": {
+      "main": [
+        [
+          {
+            "node": "Fail a quarter of the time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fail a quarter of the time": {
+      "main": [
+        [
+          {
+            "node": "Failing this time?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Failing this time?": {
+      "main": [
+        [
+          {
+            "node": "Respond with a failure",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond with posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail endpoint": {
+      "main": [
+        [
+          {
+            "node": "Accept the mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Accept the mail": {
+      "main": [
+        [
+          {
+            "node": "Respond mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alerts endpoint": {
+      "main": [
+        [
+          {
+            "node": "Swallow the alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Swallow the alert": {
+      "main": [
+        [
+          {
+            "node": "Respond alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none",
+    "saveExecutionProgress": false,
+    "timezone": "Europe/Madrid"
+  },
+  "pinData": {}
+}

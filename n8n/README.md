@@ -355,14 +355,60 @@ inactive workflow fails with `Workflow is not active and cannot be executed`.
 `00` and `01` are therefore active even though neither has a trigger of its
 own, which looks wrong in the UI and is correct.
 
+### What the first end-to-end run found
+
+`09 fake providers` exists so the pipeline has somewhere real to read from and
+write to: an application feed, a platform API that fails a quarter of its
+calls on purpose, a mailer, and an alert sink. All four are webhooks on the
+same n8n instance, so the demo needs no external account and no signup.
+
+Pointing the config at it and letting it run found four defects that every
+structural check had passed clean.
+
+**The payout was a cent high on every row.** `sum()` over a `bigint` column
+returns `numeric` in Postgres, not `bigint`, which silently turned
+`(views * rate + 500) / 1000` from integer division into decimal division.
+The `+ 500` was already the rounding, so the implicit cast on insert rounded a
+second time: 234.01 EUR where 234.00 was owed. No error, no warning, a
+plausible number in the right column. It was caught by recomputing two rows by
+hand against the stored ones, which is the only way this class of bug is ever
+found — and it is the exact failure the "integer cents end to end" argument
+was written to prevent, defeated by a type promotion nobody types out.
+The fix is `::bigint`.
+
+**`splitOut` with `include: allOtherFields` nests instead of spreading.**
+Each post came out under `data` rather than as top-level fields, so
+`external_id` was undefined and every insert died on a NOT NULL column — while
+the node reported two items out and looked healthy. Replaced with six lines of
+JavaScript, where the shape is the shape.
+
+**`Execute Workflow` defaults to `mode: once`.** One sub-execution receives
+all four hundred applicants as items. The claim that each applicant gets its
+own execution was simply false until `mode: each` was set — the diagram was
+right and the engine was doing something else. And `waitForSubWorkflow: false`,
+added on a parallelism theory that does not apply (n8n runs `each`
+sequentially either way), produced detached executions that ran zero nodes,
+reported success and wrote nothing. A green run that did not happen is the
+worst outcome available.
+
+**`$execution.startedAt` is undefined in a sub-execution.** Every duration
+became `NaN`, and every `runs` insert failed on an integer column — including
+in a node set to `onError: continueRegularOutput`, which did not save it.
+
+The pattern across all four is worth naming: not one of them threw anything a
+structural check could see, and three of the four produced output that looked
+correct. Only running it and then checking the numbers by hand found them.
+
 ### What is still untested
 
-- **The HTTP paths.** `applications_url`, `platform_api_url` and `mailer_url`
-  all point at `example.invalid` in the config table. The retry, error-output
-  and dead letter wiring around them is structurally checked and has never
-  actually fired.
 - **The replay.** `04` needs a Header Auth credential assigned in the UI
-  before its webhook will accept anything.
+  before its webhook will accept anything. Everything behind it — the atomic
+  claim, the double-replay refusal, the claim release on a second failure —
+  has never run.
+- **A real provider.** Everything upstream now runs against `09 fake
+  providers`, which is honest about being fake. A real form and a real mail
+  service will have their own opinions about rate limits, pagination and
+  response shapes.
 - **Item pairing.** `01` avoids depending on n8n's `$('Node').item` pairing by
   routing values through the database and through the API contract instead
   (the posts endpoint must echo `tracking_code`). Pairing is the part of n8n
@@ -372,10 +418,11 @@ own, which looks wrong in the UI and is correct.
   concurrently if a poll overruns. Every write here is idempotent, so that is
   survivable, and it has not been tested under it.
 
-Current activation state, deliberately partial: `00`, `01`, `03` and `05` are
-active. `01a`, `02`, `04` and `06` are not, because their endpoints are still
-placeholders and an active workflow pointing at `example.invalid` generates
-real failures that teach nothing.
+All nine are now active and running against the fake providers. A poll every
+six hours produces three creators, three applicants waiting for a human, two
+rejections and two malformed records dead lettered as `invalid` — and, a
+quarter of the time, a platform call that fails, retries four times and
+exercises the whole failure path on an ordinary afternoon.
 
 ---
 
