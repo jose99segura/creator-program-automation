@@ -78,9 +78,10 @@ does not.
 
 Accuracy alone lies twice on this dataset.
 
-It hides imbalance: 22 of 46 labels are `rejected`, so a rule that rejects
-everything scores 0.48 while being worthless. Macro F1 gives it about 0.16,
-which is the honest description.
+It hides imbalance. The 46 labels are 16 `accepted`, 12 `review`, 11
+`rejected` and 7 `invalid` -- counted off the loaded table, not guessed -- so a
+rule that accepted everything and read nothing would score 0.35. Macro F1 gives
+that rule about 0.13, which is the honest description.
 
 And it treats every mistake as equal. Accepting somebody who should have been
 rejected costs money; rejecting somebody who should have been accepted costs a
