@@ -1,0 +1,268 @@
+{
+  "id": "creatorPoller01a",
+  "name": "01a application poller",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "aa000000-0000-4000-8000-000000000001",
+      "name": "Every 6 hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -660,
+        300
+      ],
+      "notes": "Poll, not webhook, because the source is a form export. A webhook would be better and nothing else changes: swap this node, the pipeline is untouched.\n\nThis workflow exists so that the pipeline has exactly one entry point. Fetching and processing were one workflow until the config had to be loaded per execution, and splitting them turned out to fix three things at once: the pipeline stopped needing to know how work reaches it, a failure in one applicant stopped being able to affect the others, and the retry became a retry of one item rather than of a batch of four hundred."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(jsonb_object_agg(key, value), '{}'::jsonb) AS config\nFROM config;",
+        "options": {}
+      },
+      "id": "aa000000-0000-4000-8000-000000000002",
+      "name": "Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        -440,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.config.applications_url }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "aa000000-0000-4000-8000-000000000003",
+      "name": "Fetch applications",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -220,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "notes": "retryOnFail + maxTries + waitBetweenTries is n8n's retry.py. What it does NOT have is jitter: every workflow that failed during an outage retries on the same fixed grid and hits the provider together. At this volume that is fine; at 100x it is the first thing to replace with a Wait node on a random interval."
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data",
+        "options": {}
+      },
+      "id": "aa000000-0000-4000-8000-000000000004",
+      "name": "One item per applicant",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        0,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creatorPipeline1",
+          "mode": "id"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "aa000000-0000-4000-8000-000000000005",
+      "name": "Into the pipeline",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        220,
+        220
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "waitForSubWorkflow is FALSE here, unlike everywhere else in this repository, and it is the one place that is right.\n\nWaiting would serialise four hundred applicants behind one another and hold this execution open for the total. Not waiting means each applicant is an independent execution that succeeds or fails on its own -- which is the point of the split -- and it is safe precisely because the pipeline reports its own failures: it writes its own dead letters and 03 catches whatever it does not. The poller does not need to hear back to be sure nothing was lost.\n\nThe error output here therefore catches something narrower: a failure to *start* the sub-workflow at all."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO runs\n  (workflow_id, execution_id, kind, status, item_count, duration_ms)\nVALUES ($1, $2, 'ingest', 'ok', $3, $4);",
+        "options": {
+          "queryReplacement": "={{ [$workflow.id, $execution.id, $input.all().length, Date.now() - new Date($execution.startedAt).getTime()] }}"
+        }
+      },
+      "id": "aa000000-0000-4000-8000-000000000006",
+      "name": "Record the poll",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        440,
+        220
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "notes": "Records how many applicants were handed on, not how many succeeded. Those are different numbers and the pipeline records the second one. Conflating them would make a poll that dispatched four hundred failures look like a good night.",
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO dead_letters\n  (workflow_id, workflow_name, execution_id, execution_url, node, kind,\n   payload, attempts, error, reason)\nVALUES ($1, $2, $3, $4, $5, 'ingest', $6::jsonb, 4, $7, 'exhausted');",
+        "options": {
+          "queryReplacement": "={{ [$workflow.id, $workflow.name, $execution.id, `${$('Config').first().json.config.editor_base_url}/workflow/${$workflow.id}/executions/${$execution.id}`, $prevNode.name, JSON.stringify($json), $json.error?.message || String($json.error || 'unclassified failure')] }}"
+        }
+      },
+      "id": "aa000000-0000-4000-8000-000000000007",
+      "name": "Dead letter",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        220,
+        460
+      ],
+      "notes": "A failed fetch is one dead letter for the whole poll, not four hundred: there is nothing to replay per applicant, because no applicant was read. Replaying this one re-runs the fetch.",
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.config.alert_webhook_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: `creator-program: the application poll failed\\n${$json.error?.message || $json.error}\\n${$('Config').first().json.config.editor_base_url}/workflow/${$workflow.id}/executions/${$execution.id}` }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "aa000000-0000-4000-8000-000000000008",
+      "name": "Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        460
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Every 6 hours": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Fetch applications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch applications": {
+      "main": [
+        [
+          {
+            "node": "One item per applicant",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dead letter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per applicant": {
+      "main": [
+        [
+          {
+            "node": "Into the pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Into the pipeline": {
+      "main": [
+        [
+          {
+            "node": "Record the poll",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dead letter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dead letter": {
+      "main": [
+        [
+          {
+            "node": "Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "creatorErrors003",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "timezone": "Europe/Madrid"
+  },
+  "pinData": {}
+}

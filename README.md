@@ -295,11 +295,12 @@ creator_program/
   steps/                   ingest, screen, onboard, track, payout
   providers/               a fake platform API and mailer, which fail on purpose
 tests/                     payouts, the retry path, validation, the n8n graphs
-n8n/                       the same pipeline as seven n8n workflows
-  README.md                what each one proves, and how to set them up
-  sql/                     the Postgres schema and the labelled dataset
-  workflows/               00 rules, 01 pipeline, 02 payout, 03 errors,
-                           04 replay, 05 eval, 06 digest
+n8n/                       the same pipeline as eight n8n workflows, deployed
+  README.md                what each one proves, how to set them up, results
+  deploy.sh                schema, config, golden set, import, verification
+  sql/                     schema, the labelled dataset, the config table
+  workflows/               00 rules, 01 pipeline, 01a poller, 02 payout,
+                           03 errors, 04 replay, 05 eval, 06 digest
 ```
 
 ## Tests
@@ -343,10 +344,27 @@ precision and recall, and the confusion matrix to a table on every run. Seven
 of those labels disagree with the current thresholds on purpose: a golden set
 generated from the rules scores 1.0 for ever and measures nothing.
 
-The graphs are structurally validated in CI -- connections, reachability,
-unconnected error outputs, and the fact that the ruleset appears in exactly
-one file. They have **not** been run against a live n8n instance. Treat that
-directory as a reviewed design; the Python side is the tested one.
+All eight are **deployed and running** on a self-hosted n8n 2.10.2, against a
+dedicated database in a shared Postgres. The eval has executed through the
+real runtime:
+
+```
+ruleset v3-two-thresholds    46 cases    39 correct
+accuracy 0.8478             macro F1 0.8623
+false accepts 2             false rejects 0
+```
+
+The seven failures are exactly the seven rows labelled `DISAGREES`. Every
+threshold boundary, every malformed record and every normalisation passed. The
+two false accepts and zero false rejects are the finding worth having: the
+rules fail in the expensive direction, and no threshold fixes it, because
+follower count is not the signal that separates those rows. That conclusion is
+unreachable from an accuracy number alone.
+
+The HTTP paths are still pointed at placeholder endpoints and have not fired.
+`n8n/README.md` says which parts have run and which have not, and what the
+first real deployment found -- including two failures that are invisible to
+structural validation because they raise nothing at all.
 
 ## Configuration
 

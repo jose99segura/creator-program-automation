@@ -6,6 +6,7 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "creator-program/replay",
+        "authentication": "headerAuth",
         "responseMode": "lastNode",
         "options": {}
       },
@@ -17,41 +18,7 @@
         -880,
         200
       ],
-      "notes": "POST {\"id\": 42} with an x-replay-token header. This is the endpoint that makes the dead letter a queue instead of a graveyard: once the cause is fixed, recovering the work is a request, not somebody writing UPDATE statements against production at midnight."
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "c4000000-0000-4000-8000-000000000001",
-              "leftValue": "={{ $json.headers['x-replay-token'] }}",
-              "rightValue": "={{ $env.REPLAY_TOKEN }}",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "a4000000-0000-4000-8000-000000000002",
-      "name": "Authorised?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        -660,
-        200
-      ],
-      "notes": "An n8n webhook URL is public the moment the workflow is active, and this one re-runs work that can send email and compute money. A shared secret in a header is the minimum; put it in Coolify as REPLAY_TOKEN and never in the workflow. Note this compares strings directly rather than in constant time -- fine for a token nobody can guess and worth knowing you are choosing."
+      "notes": "POST {\"id\": 42}. This is the endpoint that makes the dead letter a queue instead of a graveyard: once the cause is fixed, recovering the work is a request, not somebody writing UPDATE statements against production at midnight.\n\nAuthentication is a Header Auth credential, assigned in the UI after import. An n8n webhook URL is public the moment the workflow is active, and this one re-runs work that sends email. The token is a credential rather than a config row on purpose: it authenticates a caller rather than configuring behaviour, so it belongs where n8n encrypts it with the instance key and no Code node can read it. n8n also compares it in the framework rather than in an expression, which is one fewer place to get a string comparison subtly wrong."
     },
     {
       "parameters": {
@@ -102,7 +69,13 @@
         -660,
         440
       ],
-      "notes": "reason 'invalid' is excluded. A malformed payload will be exactly as malformed on a replay, so offering it up is offering a guaranteed second failure. Those need the source fixed, not the work re-run."
+      "notes": "reason 'invalid' is excluded. A malformed payload will be exactly as malformed on a replay, so offering it up is offering a guaranteed second failure. Those need the source fixed, not the work re-run.",
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     },
     {
       "parameters": {
@@ -119,7 +92,13 @@
       "position": [
         -220,
         300
-      ]
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     },
     {
       "parameters": {
@@ -222,7 +201,7 @@
         140
       ],
       "onError": "continueErrorOutput",
-      "notes": "Enters 01 through its 'Replayed by 04' trigger, not through the schedule, so one item is reprocessed rather than the whole poll. waitForSubWorkflow so that a replay that fails again is visible here instead of being fire and forget."
+      "notes": "Enters 01 through its single entry point, the same one the poller uses, so one applicant is reprocessed rather than a whole poll. Nothing downstream can tell this apart from a scheduled run.\n\nwaitForSubWorkflow is true here, unlike in the poller: a replay is a deliberate act by a person who is waiting to hear whether it worked, and a replay that fails again has to come back here to release its claim."
     },
     {
       "parameters": {
@@ -240,7 +219,13 @@
         880,
         140
       ],
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     },
     {
       "parameters": {
@@ -258,7 +243,13 @@
         880,
         340
       ],
-      "notes": "Without this a failed replay leaves the row marked replayed, and the work is lost with a timestamp saying it was handled. That is worse than never having replayed it, because now nothing is counting it."
+      "notes": "Without this a failed replay leaves the row marked replayed, and the work is lost with a timestamp saying it was handled. That is worse than never having replayed it, because now nothing is counting it.",
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     },
     {
       "parameters": {
@@ -334,30 +325,13 @@
       "position": [
         660,
         320
-      ]
-    },
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "s4000000-0000-4000-8000-000000000006",
-              "name": "status",
-              "value": "unauthorised",
-              "type": "string"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "a4000000-0000-4000-8000-00000000000f",
-      "name": "Unauthorised",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [
-        -440,
-        300
-      ]
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     }
   ],
   "connections": {
@@ -365,25 +339,7 @@
       "main": [
         [
           {
-            "node": "Authorised?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Authorised?": {
-      "main": [
-        [
-          {
             "node": "Id from request",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Unauthorised",
             "type": "main",
             "index": 0
           }

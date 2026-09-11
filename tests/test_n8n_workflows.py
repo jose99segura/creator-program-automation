@@ -15,6 +15,7 @@ cleanly and fails later, which is the worst shape a defect can have.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -48,9 +49,16 @@ def targets(wf: dict) -> set[str]:
     }
 
 
+def strip_comments(code: str) -> str:
+    """Line comments removed, so a check reads code rather than prose about it."""
+    return "\n".join(
+        line for line in code.splitlines()
+        if not line.lstrip().startswith("//"))
+
+
 def test_there_are_workflows() -> None:
     """A glob that silently matches nothing turns every test below green."""
-    assert len(WORKFLOWS) >= 7, f"expected the full set, found {len(WORKFLOWS)}"
+    assert len(WORKFLOWS) >= 8, f"expected the full set, found {len(WORKFLOWS)}"
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
@@ -131,13 +139,74 @@ def test_error_outputs_are_connected(path: Path) -> None:
 def test_no_secrets_in_the_export(path: Path) -> None:
     """n8n exports are the easiest way to leak a token: people paste them.
 
-    Every value that varies by environment is read with $env at execution
-    time, so the JSON in this repository is safe to share as-is. This asserts
-    that rather than trusting it.
+    Every value that varies by environment is a row in the config table or an
+    n8n credential, so the JSON in this repository is safe to share as-is.
+    This asserts that rather than trusting it.
     """
     raw = path.read_text(encoding="utf-8")
     for marker in ("xoxb-", "sk-", "-----BEGIN", "postgres://", "postgresql://"):
         assert marker not in raw, f"{path.name}: looks like a credential ({marker})"
+
+
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
+def test_nothing_reads_the_environment(path: Path) -> None:
+    """The instance runs with N8N_BLOCK_ENV_ACCESS_IN_NODE=true.
+
+    Every `$env.X` resolves to undefined there -- in Code nodes and in
+    expressions alike -- and it does so silently: an undefined URL reads as a
+    network error, an undefined threshold compares false against everything
+    and accepts the entire intake. Nothing throws.
+
+    That setting is worth keeping, because turning it off would let any Code
+    node on the instance read DB_POSTGRESDB_PASSWORD. So config comes from the
+    `config` table and secrets come from credentials, and this test is what
+    stops a future edit from quietly reintroducing the dependency.
+    """
+    raw = path.read_text(encoding="utf-8")
+    uses = re.findall(r"\$env\.[A-Z][A-Z0-9_]+", raw)
+    assert not uses, (
+        f"{path.name} reads {sorted(set(uses))}, which is blocked on this "
+        f"instance. Operational values belong in the config table; secrets "
+        f"belong in a credential.")
+
+
+@pytest.mark.parametrize(
+    "path", [p for p in WORKFLOWS if p.stem != "00-screening-rules"],
+    ids=lambda p: p.stem)
+def test_workflows_that_need_config_load_it(path: Path) -> None:
+    """A `$('Config')` reference only resolves if that node ran first.
+
+    n8n does not check this at import. The expression evaluates to undefined
+    at runtime and the node carries on with a broken URL, which is the same
+    silent-failure shape as the $env problem it replaced.
+    """
+    wf = load(path)
+    raw = path.read_text(encoding="utf-8")
+    if "$('Config')" not in raw:
+        pytest.skip("does not reference Config")
+    assert "Config" in node_names(wf), (
+        f"{path.name} references $('Config') but has no node called Config")
+
+
+def test_the_ruleset_takes_its_thresholds_from_the_caller() -> None:
+    """00 must stay a pure function: no $env, no database, no clock.
+
+    It is the one node the eval and production genuinely share, and the moment
+    it reaches outside itself for a value, the eval stops being able to say
+    what it measured.
+    """
+    wf = load(WORKFLOW_DIR / "00-screening-rules.json")
+    code = "".join(n["parameters"].get("jsCode", "") for n in wf["nodes"])
+    assert "_config" in code, "the ruleset does not read thresholds from its input"
+
+    # Comments stripped first. Both this file and the ruleset discuss $env and
+    # require() at length precisely because they are the things not to use, and
+    # a check that cannot tell prose from code fails on its own explanation.
+    body = strip_comments(code)
+    for forbidden in ("$env.", "$('Config')", "require(", "$http", "fetch("):
+        assert forbidden not in body, (
+            f"the ruleset reaches outside itself via {forbidden!r}")
+    assert not any(n["type"] == "n8n-nodes-base.postgres" for n in wf["nodes"]),         "the ruleset queries the database"
 
 
 def test_the_ruleset_has_exactly_one_home() -> None:

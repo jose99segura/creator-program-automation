@@ -48,7 +48,13 @@
       "position": [
         -660,
         300
-      ]
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     },
     {
       "parameters": {
@@ -63,7 +69,13 @@
       "position": [
         -440,
         300
-      ]
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     },
     {
       "parameters": {
@@ -115,7 +127,13 @@
         220,
         300
       ],
-      "notes": "Appended, never updated, and stamped with the ruleset version and the thresholds it ran under. Overwriting a single 'current accuracy' row makes every question about direction unanswerable, and direction is the only thing this number is good for."
+      "notes": "Appended, never updated, and stamped with the ruleset version and the thresholds it ran under. Overwriting a single 'current accuracy' row makes every question about direction unanswerable, and direction is the only thing this number is good for.",
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     },
     {
       "parameters": {
@@ -145,7 +163,13 @@
       "position": [
         660,
         300
-      ]
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     },
     {
       "parameters": {
@@ -186,7 +210,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.ALERT_WEBHOOK_URL }}",
+        "url": "={{ $('Config').first().json.config.alert_webhook_url }}",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ text: `SCREENING REGRESSED\\nruleset ${$('Compare').first().json.ruleset_version}\\naccuracy ${$('Compare').first().json.accuracy} (was ${$('Compare').first().json.previous_accuracy}, ${$('Compare').first().json.delta})\\nmacro F1 ${$('Compare').first().json.macro_f1}\\nfalse accepts ${$('Compare').first().json.false_accepts}, false rejects ${$('Compare').first().json.false_rejects}\\nflipped: ${$('Compare').first().json.failures.map(f => `${f.external_id} ${f.expected}->${f.actual}`).join(', ')}` }) }}",
@@ -208,7 +232,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.ALERT_WEBHOOK_URL }}",
+        "url": "={{ $('Config').first().json.config.alert_webhook_url }}",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ text: `screening eval: ${$('Compare').first().json.correct}/${$('Compare').first().json.total} correct, accuracy ${$('Compare').first().json.accuracy}, macro F1 ${$('Compare').first().json.macro_f1}, delta ${$('Compare').first().json.delta}. false accepts ${$('Compare').first().json.false_accepts}, false rejects ${$('Compare').first().json.false_rejects}.` }) }}",
@@ -227,6 +251,41 @@
       "executeOnce": true,
       "onError": "continueRegularOutput",
       "notes": "The score is reported whether or not it moved. A quality metric you only hear about when it drops is one nobody has a sense of, and without that sense the first drop reads as noise."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(jsonb_object_agg(key, value), '{}'::jsonb) AS config\nFROM config;",
+        "options": {}
+      },
+      "id": "a5000000-0000-4000-8000-00000000000d",
+      "name": "Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        -1100,
+        300
+      ],
+      "notes": "Read once per execution, at the top. Every node below reads the same values, so a threshold edited mid-run cannot make one item follow different rules from the next.",
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// The golden set goes to the rules carrying the same config production\n// uses, which is what lets eval_runs record the exact thresholds a score\n// was measured under. An eval that cannot say what it scored against is\n// a number without units.\nconst cfg = $('Config').first().json.config ?? {};\n\nreturn $input.all().map((item) => ({\n  json: { ...item.json, _config: cfg },\n}));"
+      },
+      "id": "a5000000-0000-4000-8000-00000000000e",
+      "name": "Attach config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -330,
+        300
+      ]
     }
   ],
   "connections": {
@@ -234,7 +293,7 @@
       "main": [
         [
           {
-            "node": "Previous eval",
+            "node": "Config",
             "type": "main",
             "index": 0
           }
@@ -245,7 +304,7 @@
       "main": [
         [
           {
-            "node": "Previous eval",
+            "node": "Config",
             "type": "main",
             "index": 0
           }
@@ -267,7 +326,7 @@
       "main": [
         [
           {
-            "node": "Score with the real rules",
+            "node": "Attach config",
             "type": "main",
             "index": 0
           }
@@ -341,6 +400,28 @@
         [
           {
             "node": "Report the score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Previous eval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach config": {
+      "main": [
+        [
+          {
+            "node": "Score with the real rules",
             "type": "main",
             "index": 0
           }

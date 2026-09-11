@@ -36,11 +36,17 @@
       "position": [
         -440,
         300
-      ]
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     },
     {
       "parameters": {
-        "jsCode": "// Eight lines that say what ran, how it ended, what is waiting for a human,\n// and whether the screening rules still agree with the labels.\n//\n// Deliberately short. A digest long enough to need scrolling is a digest\n// people stop reading, and an unread digest is worse than none because it\n// creates the belief that somebody is watching.\n\nconst d = $input.first().json;\nconst dl = d.dead_letters ?? {};\nconst ev = d.latest_eval ?? null;\nconst subs = d.submissions ?? {};\nconst pay = d.payouts ?? {};\n\nconst lines = [];\nlines.push(`creator-program, last 24h`);\nlines.push('');\n\nif ((d.runs_24h ?? 0) === 0) {\n  // The dead man's switch. Every other number in this digest describes work\n  // that happened; only this one notices work that did not. A disabled\n  // workflow, an expired credential or a trigger that stopped firing produce\n  // no failures at all -- they produce silence, and silence reads exactly\n  // like a quiet week.\n  lines.push('NOTHING RAN. No run records in 24 hours.');\n  lines.push('Check: workflow active, credentials valid, schedule firing.');\n} else {\n  for (const o of d.outcomes ?? []) {\n    lines.push(`  ${o.kind.padEnd(10)} ${o.status.padEnd(10)} ${String(o.n).padStart(4)}  avg ${o.avg_ms}ms`);\n  }\n}\n\nlines.push('');\nlines.push(`Dead letters awaiting a decision: ${dl.open_total ?? 0}` +\n  ` (${dl.open_today ?? 0} today, ${dl.open_invalid ?? 0} malformed, ${dl.open_crashed ?? 0} crashes)`);\n\nif (dl.oldest_open) {\n  const days = Math.floor((Date.now() - new Date(dl.oldest_open).getTime()) / 86400000);\n  // Age, not just count. A DLQ holding steady at four is either four items\n  // someone triages daily or the same four nobody has looked at since March,\n  // and the count cannot tell those apart.\n  lines.push(`Oldest open dead letter: ${days} day(s) old`);\n}\n\nlines.push(`Applicants awaiting human review: ${subs.awaiting_review ?? 0}` +\n  ` (${subs.new_today ?? 0} new today)`);\n\nlines.push(ev\n  ? `Screening accuracy: ${ev.accuracy} (macro F1 ${ev.macro_f1}, ${ev.ruleset_version})`\n  : 'Screening accuracy: never evaluated -- run 05');\n\nif (pay.last_period_end) {\n  lines.push(`Last payout period ${pay.last_period_end}: ${(pay.last_period_cents / 100).toFixed(2)} EUR`);\n}\n\n// What makes this worth a look rather than worth a scroll past.\nconst needsAttention =\n  (d.runs_24h ?? 0) === 0 ||\n  (d.failed_24h ?? 0) > 0 ||\n  (dl.open_total ?? 0) > 0 ||\n  (ev && ev.accuracy < Number($env.MIN_ACCURACY ?? 0.8));\n\nreturn [{ json: {\n  text: lines.join('\\n'),\n  needs_attention: needsAttention,\n  silent: (d.runs_24h ?? 0) === 0,\n} }];"
+        "jsCode": "// Eight lines that say what ran, how it ended, what is waiting for a human,\n// and whether the screening rules still agree with the labels.\n//\n// Deliberately short. A digest long enough to need scrolling is a digest\n// people stop reading, and an unread digest is worse than none because it\n// creates the belief that somebody is watching.\n\nconst d = $input.first().json;\nconst dl = d.dead_letters ?? {};\nconst ev = d.latest_eval ?? null;\nconst subs = d.submissions ?? {};\nconst pay = d.payouts ?? {};\n\nconst lines = [];\nlines.push(`creator-program, last 24h`);\nlines.push('');\n\nif ((d.runs_24h ?? 0) === 0) {\n  // The dead man's switch. Every other number in this digest describes work\n  // that happened; only this one notices work that did not. A disabled\n  // workflow, an expired credential or a trigger that stopped firing produce\n  // no failures at all -- they produce silence, and silence reads exactly\n  // like a quiet week.\n  lines.push('NOTHING RAN. No run records in 24 hours.');\n  lines.push('Check: workflow active, credentials valid, schedule firing.');\n} else {\n  for (const o of d.outcomes ?? []) {\n    lines.push(`  ${o.kind.padEnd(10)} ${o.status.padEnd(10)} ${String(o.n).padStart(4)}  avg ${o.avg_ms}ms`);\n  }\n}\n\nlines.push('');\nlines.push(`Dead letters awaiting a decision: ${dl.open_total ?? 0}` +\n  ` (${dl.open_today ?? 0} today, ${dl.open_invalid ?? 0} malformed, ${dl.open_crashed ?? 0} crashes)`);\n\nif (dl.oldest_open) {\n  const days = Math.floor((Date.now() - new Date(dl.oldest_open).getTime()) / 86400000);\n  // Age, not just count. A DLQ holding steady at four is either four items\n  // someone triages daily or the same four nobody has looked at since March,\n  // and the count cannot tell those apart.\n  lines.push(`Oldest open dead letter: ${days} day(s) old`);\n}\n\nlines.push(`Applicants awaiting human review: ${subs.awaiting_review ?? 0}` +\n  ` (${subs.new_today ?? 0} new today)`);\n\nlines.push(ev\n  ? `Screening accuracy: ${ev.accuracy} (macro F1 ${ev.macro_f1}, ${ev.ruleset_version})`\n  : 'Screening accuracy: never evaluated -- run 05');\n\nif (pay.last_period_end) {\n  lines.push(`Last payout period ${pay.last_period_end}: ${(pay.last_period_cents / 100).toFixed(2)} EUR`);\n}\n\n// What makes this worth a look rather than worth a scroll past.\nconst needsAttention =\n  (d.runs_24h ?? 0) === 0 ||\n  (d.failed_24h ?? 0) > 0 ||\n  (dl.open_total ?? 0) > 0 ||\n  (ev && ev.accuracy < Number($('Config').first().json.config.min_accuracy ?? 0.8));\n\nreturn [{ json: {\n  text: lines.join('\\n'),\n  needs_attention: needsAttention,\n  silent: (d.runs_24h ?? 0) === 0,\n} }];"
       },
       "id": "a6000000-0000-4000-8000-000000000003",
       "name": "Compose the digest",
@@ -54,7 +60,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.ALERT_WEBHOOK_URL }}",
+        "url": "={{ $('Config').first().json.config.alert_webhook_url }}",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ text: ($json.needs_attention ? '[needs attention] ' : '[all clear] ') + '\\n' + $json.text }) }}",
@@ -90,14 +96,20 @@
         220
       ],
       "onError": "continueRegularOutput",
-      "notes": "The digest records its own run, which is what stops it from being the one workflow whose silence nobody notices. If this row stops appearing, tomorrow's digest says NOTHING RAN about itself."
+      "notes": "The digest records its own run, which is what stops it from being the one workflow whose silence nobody notices. If this row stops appearing, tomorrow's digest says NOTHING RAN about itself.",
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     },
     {
       "parameters": {
         "operation": "executeQuery",
         "query": "-- The digest could not be delivered. Record it, because a health report that\n-- fails silently is the worst possible failure in the system: from the\n-- outside it is indistinguishable from a healthy week.\nINSERT INTO dead_letters\n  (workflow_id, workflow_name, execution_id, execution_url, node, kind,\n   payload, attempts, error, reason)\nVALUES ($1, $2, $3, $4, 'Send the digest', 'digest', $5::jsonb, 1, $6, 'exhausted');",
         "options": {
-          "queryReplacement": "={{ [$workflow.id, $workflow.name, $execution.id, `${$env.N8N_EDITOR_BASE_URL}/workflow/${$workflow.id}/executions/${$execution.id}`, JSON.stringify($json), `digest delivery failed: ${$json.error?.message || $json.error || 'unknown'}`] }}"
+          "queryReplacement": "={{ [$workflow.id, $workflow.name, $execution.id, `${$('Config').first().json.config.editor_base_url}/workflow/${$workflow.id}/executions/${$execution.id}`, JSON.stringify($json), `digest delivery failed: ${$json.error?.message || $json.error || 'unknown'}`] }}"
         }
       },
       "id": "a6000000-0000-4000-8000-000000000006",
@@ -107,7 +119,35 @@
       "position": [
         220,
         400
-      ]
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(jsonb_object_agg(key, value), '{}'::jsonb) AS config\nFROM config;",
+        "options": {}
+      },
+      "id": "a6000000-0000-4000-8000-000000000007",
+      "name": "Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        -880,
+        300
+      ],
+      "notes": "Read once per execution, at the top. Every node below reads the same values, so a threshold edited mid-run cannot make one item follow different rules from the next.",
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     }
   ],
   "connections": {
@@ -115,7 +155,7 @@
       "main": [
         [
           {
-            "node": "Collect the numbers",
+            "node": "Config",
             "type": "main",
             "index": 0
           }
@@ -156,6 +196,17 @@
         [
           {
             "node": "Digest undeliverable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Collect the numbers",
             "type": "main",
             "index": 0
           }

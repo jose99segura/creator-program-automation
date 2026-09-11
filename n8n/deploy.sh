@@ -4,9 +4,13 @@
 #
 # Run it ON the box, over ssh, so the production password never leaves it:
 #
-#   scp -r n8n root@51.195.223.171:/tmp/creator-n8n
-#   ssh root@51.195.223.171
-#   CREATOR_DB_PASSWORD='...' bash /tmp/creator-n8n/deploy.sh
+#   scp -r -i ~/.ssh/coolify_vps n8n ubuntu@51.195.223.171:/tmp/creator-n8n
+#   ssh -i ~/.ssh/coolify_vps ubuntu@51.195.223.171
+#   CREATOR_DB_PASSWORD="$(cat ~/.creator_prod_password)" #     bash /tmp/creator-n8n/deploy.sh
+#
+# ubuntu, not root, and docker needs sudo. The password lives in
+# ~/.creator_prod_password on the box, chmod 600, and nowhere else -- not in
+# this repository and not in Coolify.
 #
 # Idempotent on purpose. The role and database are created only if absent, the
 # schema is CREATE TABLE IF NOT EXISTS throughout, the golden set is an upsert,
@@ -14,14 +18,23 @@
 # duplicates. Running it again after a partial failure is the normal way to
 # use it, which is the only kind of deploy script anyone actually trusts.
 #
-# What it does NOT do: create the n8n Postgres credential. n8n encrypts
-# credentials with the instance key, so scripting that means writing the
-# password somewhere in plaintext first. Create it once in the UI.
+# What it does NOT do: create the n8n credentials.
+#
+# The Postgres one exists already, imported once with `n8n import:credentials`
+# under the fixed id creatorPgCred001, which is what every Postgres node in
+# the workflows references. Re-creating it means writing the password to a
+# plaintext file first, so it is a one-off done by hand rather than a step
+# that runs on every deploy.
+#
+# The Header Auth one for the replay webhook has to be made in the UI. It
+# guards an endpoint that re-runs work which sends email.
 
 set -euo pipefail
 
-PG_CONTAINER="${PG_CONTAINER:-postgres-shared}"
-N8N_CONTAINER="${N8N_CONTAINER:-n8n}"
+# Coolify names containers by resource uuid, not by the service name you
+# typed. These are the real ones on this box; find them with `docker ps`.
+PG_CONTAINER="${PG_CONTAINER:-yhnvfpxjld6w2dthn71qgcwl}"
+N8N_CONTAINER="${N8N_CONTAINER:-n8n-juqfegd2caaahmtogi2yxgbi}"
 DB_NAME="${DB_NAME:-creator_prod}"
 DB_ROLE="${DB_ROLE:-creator_prod}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -74,7 +87,7 @@ fi
 
 say "schema and golden set"
 # Applied AS the app role, so every table it creates is its own.
-for f in 01-schema.sql 02-golden-set.sql; do
+for f in 01-schema.sql 02-golden-set.sql 03-config.sql; do
   echo "-- $f"
   PGPASSWORD="$CREATOR_DB_PASSWORD" docker exec -i \
     -e PGPASSWORD="$CREATOR_DB_PASSWORD" "$PG_CONTAINER" \
@@ -113,18 +126,30 @@ docker exec "$N8N_CONTAINER" rm -rf /tmp/creator-workflows
 
 say "done"
 cat <<'NEXT'
-Four things are still manual, and all four are deliberate:
+Two things are still manual, and both are deliberate:
 
-  1. The Postgres credential, in the n8n UI. Assign it to every Postgres node.
-     Scripting it would mean writing the password out in plaintext first.
-  2. The environment variables from n8n/.env.example, in Coolify, on the n8n
-     service. NODE_FUNCTION_ALLOW_BUILTIN=crypto is the one that fails at
-     runtime rather than at import, so the workflow looks healthy until it
-     runs.
-  3. Activating the workflows. Creating a resource is not deploying it, and
-     importing a workflow is not activating it.
-  4. Making it fail on purpose. See the six cases in n8n/README.md. An
+  1. The Header Auth credential for the replay webhook in 04, in the n8n UI.
+     It guards an endpoint that re-runs work which sends email, and it should
+     not exist in a file anywhere.
+  2. Making it fail on purpose. See the six cases in n8n/README.md. An
      automation whose failure path has never run is an automation whose
      failure path does not work, and that is half of what is in this
      directory.
+
+And one thing that is not optional, because import leaves everything
+inactive -- including workflows that were active before a re-import:
+
+  n8n update:workflow --id creatorRules0000 --active=true
+  n8n update:workflow --id creatorPipeline1 --active=true
+  n8n update:workflow --id creatorErrors003 --active=true
+  n8n update:workflow --id creatorEval00005 --active=true
+  docker restart <n8n container>
+
+00 and 01 have no trigger of their own and still have to be active. In n8n 2.x
+a call into an inactive workflow fails with "Workflow is not active and cannot
+be executed", which reads like a permissions problem and is not.
+
+Leave 01a, 02, 04 and 06 inactive until their endpoints in the config table
+point at something real. An active workflow aimed at example.invalid produces
+genuine failures that teach nothing and fill the dead letter table.
 NEXT

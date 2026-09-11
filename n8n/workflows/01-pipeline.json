@@ -4,74 +4,52 @@
   "nodes": [
     {
       "parameters": {
-        "rule": {
-          "interval": [
-            {
-              "field": "hours",
-              "hoursInterval": 6
-            }
-          ]
-        }
+        "inputSource": "passthrough"
       },
       "id": "a1000000-0000-4000-8000-000000000001",
-      "name": "Every 6 hours",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.2,
+      "name": "Called per applicant",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -880,
+        300
+      ],
+      "notes": "One entry point, one applicant. Both callers -- 01a on the schedule and 04 on a replay -- arrive here, which is why nothing downstream can tell a replay from a normal run. That is the property the whole design protects.\n\nIt is also the item-level isolation the scaling notes argue for: each applicant is its own execution, so a failure at applicant 400 cannot take the other 399 with it, and the retry is of one item rather than of a batch."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Every tunable value, as one object.\n--\n-- COALESCE because jsonb_object_agg over zero rows returns NULL, and a NULL\n-- here would surface much later as an undefined URL in an HTTP node, which\n-- reads as a network problem rather than as an empty table.\nSELECT COALESCE(jsonb_object_agg(key, value), '{}'::jsonb) AS config\nFROM config;",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
       "position": [
         -660,
         300
       ],
-      "notes": "Poll, not webhook, because the source is a form export. A webhook would be better and the design does not change: swap this node, everything downstream is untouched."
+      "notes": "Read once per execution, at the top, so every node below sees the same values. Reading it per node would let a threshold change halfway through a run and screen two applicants by different rules.",
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     },
     {
       "parameters": {
-        "url": "={{ $env.APPLICATIONS_URL }}",
-        "options": {
-          "timeout": 30000
-        }
+        "jsCode": "// Put the config onto each applicant, so the ruleset stays a pure function\n// of its input and does not have to reach outside itself for anything.\n//\n// The items come from the trigger rather than from this node's input,\n// because this node's input is the single config row -- the Config node\n// replaced the items with its query result, which is what every Postgres\n// node does and the most common way to lose data in n8n.\nconst cfg = $('Config').first().json.config ?? {};\n\nreturn $('Called per applicant').all().map((item) => ({\n  json: { ...item.json, _config: cfg },\n}));"
       },
-      "id": "a1000000-0000-4000-8000-000000000002",
-      "name": "Fetch applications",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "name": "Attach config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         -440,
         300
-      ],
-      "retryOnFail": true,
-      "maxTries": 4,
-      "waitBetweenTries": 5000,
-      "onError": "continueErrorOutput",
-      "notes": "retryOnFail + maxTries + waitBetweenTries is n8n's retry.py. What it does NOT have is jitter: every workflow that failed during an outage retries on the same fixed grid and hits the provider together. At this volume that is fine; at 100x it is the first thing to replace with a Wait node on a random interval."
-    },
-    {
-      "parameters": {
-        "fieldToSplitOut": "data",
-        "options": {}
-      },
-      "id": "a1000000-0000-4000-8000-000000000003",
-      "name": "One item per applicant",
-      "type": "n8n-nodes-base.splitOut",
-      "typeVersion": 1,
-      "position": [
-        -220,
-        220
-      ],
-      "notes": "Same reason as steps/ingest.py: one bad applicant must not fail the batch. From here on every node runs per item."
-    },
-    {
-      "parameters": {
-        "inputSource": "passthrough"
-      },
-      "id": "a1000000-0000-4000-8000-000000000011",
-      "name": "Replayed by 04",
-      "type": "n8n-nodes-base.executeWorkflowTrigger",
-      "typeVersion": 1.1,
-      "position": [
-        -220,
-        440
-      ],
-      "notes": "The second entry point. A replay joins here, one item, downstream of the fetch -- so recovering one failed applicant does not re-poll the whole source and re-process the other four hundred. The steps below cannot tell the difference between an item that arrived on the schedule and one that arrived on a replay, and that is the property the whole design is protecting."
+      ]
     },
     {
       "parameters": {
@@ -89,10 +67,10 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        0,
-        220
+        -220,
+        300
       ],
-      "notes": "Calls 00 screening rules. The decision lives in one workflow so that 05 eval can score the same code production runs, instead of a copy that drifts."
+      "notes": "Calls 00 screening rules. The decision lives in one workflow so that 06 eval can score the same code production runs, instead of a copy that drifts."
     },
     {
       "parameters": {
@@ -124,8 +102,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        220,
-        220
+        0,
+        300
       ],
       "notes": "A malformed application is data, not an outage. It is dead lettered with reason 'invalid' and never retried, because the payload will be exactly as malformed in five seconds."
     },
@@ -142,10 +120,16 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        440,
-        140
+        220,
+        220
       ],
-      "notes": "queryReplacement is an ARRAY expression, not a comma-separated string. With a string, any value containing a comma (JSON, a reason sentence) shifts every parameter after it by one and the insert either fails or writes the wrong column."
+      "notes": "queryReplacement is an ARRAY expression, not a comma-separated string. With a string, any value containing a comma (JSON, a reason sentence) shifts every parameter after it by one and the insert either fails or writes the wrong column.",
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     },
     {
       "parameters": {
@@ -176,17 +160,17 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        660,
-        140
+        440,
+        220
       ],
       "notes": "Reads the status the database returned, not the one the rules computed. That is what makes a human override stick."
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "-- Insert-or-fetch, in one statement.\n--\n-- A plain ON CONFLICT DO NOTHING ... RETURNING returns nothing when the\n-- creator already exists, so a replay would stop here instead of going on to\n-- retry the email that actually failed. The UNION ALL branch fetches the\n-- existing row in that case, and `created` says which happened.\nWITH ins AS (\n  INSERT INTO creators\n    (submission_id, email, handle, platform, tracking_code, rate_cents_per_1k)\n  SELECT s.id, s.email, s.handle, s.platform, $2, $3\n  FROM submissions s\n  WHERE s.external_id = $1 AND s.status = 'accepted'\n  ON CONFLICT (email) DO NOTHING\n  RETURNING id, email, handle, tracking_code\n)\nSELECT id, email, handle, tracking_code, true AS created FROM ins\nUNION ALL\nSELECT c.id, c.email, c.handle, c.tracking_code, false\nFROM creators c\nWHERE c.tracking_code = $2 AND NOT EXISTS (SELECT 1 FROM ins);",
+        "query": "-- Insert-or-fetch, in one statement.\n--\n-- A plain ON CONFLICT DO NOTHING ... RETURNING returns nothing when the\n-- creator already exists, so a replay would stop here instead of going on to\n-- retry the email that actually failed. The UNION ALL branch fetches the\n-- existing row in that case, and `created` says which happened.\n--\n-- The rate is read from config in SQL rather than passed in as a parameter.\n-- One less value to thread through the workflow, and it cannot disagree with\n-- what the payout job will use, because that reads the same row.\nWITH ins AS (\n  INSERT INTO creators\n    (submission_id, email, handle, platform, tracking_code, rate_cents_per_1k)\n  SELECT s.id, s.email, s.handle, s.platform, $2,\n         (SELECT value::int FROM config WHERE key = 'rate_cents_per_1k')\n  FROM submissions s\n  WHERE s.external_id = $1 AND s.status = 'accepted'\n  ON CONFLICT (email) DO NOTHING\n  RETURNING id, email, handle, tracking_code\n)\nSELECT id, email, handle, tracking_code, true AS created FROM ins\nUNION ALL\nSELECT c.id, c.email, c.handle, c.tracking_code, false\nFROM creators c\nWHERE c.tracking_code = $2 AND NOT EXISTS (SELECT 1 FROM ins);",
         "options": {
-          "queryReplacement": "={{ [$json.external_id, $json.tracking_code, Number($env.RATE_CENTS_PER_1K ?? 250)] }}"
+          "queryReplacement": "={{ [$json.external_id, $json.tracking_code] }}"
         }
       },
       "id": "a1000000-0000-4000-8000-000000000008",
@@ -194,15 +178,21 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        880,
-        60
+        660,
+        140
       ],
-      "notes": "The WHERE s.status = 'accepted' is a second gate on purpose: this node cannot create a creator out of a rejected applicant even if it is called directly by a replay."
+      "notes": "The WHERE s.status = 'accepted' is a second gate on purpose: this node cannot create a creator out of a rejected applicant even if a replay calls it directly.",
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.MAILER_URL }}",
+        "url": "={{ $('Config').first().json.config.mailer_url }}",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ to: $json.email, template: 'creator-welcome', handle: $json.handle, tracking_code: $json.tracking_code, idempotency_key: `welcome-${$json.tracking_code}` }) }}",
@@ -215,8 +205,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1100,
-        60
+        880,
+        140
       ],
       "retryOnFail": true,
       "maxTries": 4,
@@ -226,7 +216,7 @@
     },
     {
       "parameters": {
-        "url": "={{ $env.PLATFORM_API_URL }}/posts",
+        "url": "={{ $('Config').first().json.config.platform_api_url }}/posts",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
@@ -245,8 +235,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1320,
-        60
+        1100,
+        140
       ],
       "retryOnFail": true,
       "maxTries": 4,
@@ -265,8 +255,8 @@
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
       "position": [
-        1540,
-        60
+        1320,
+        140
       ],
       "notes": "include: allOtherFields is what carries the echoed tracking_code onto each post."
     },
@@ -283,10 +273,16 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        1760,
-        60
+        1540,
+        140
       ],
-      "notes": "views has a CHECK constraint in the schema, so a provider returning a nonsense number fails this insert instead of turning into a nonsense transfer two workflows later."
+      "notes": "views has a CHECK constraint in the schema, so a provider returning a nonsense number fails this insert instead of turning into a nonsense transfer two workflows later.",
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     },
     {
       "parameters": {},
@@ -295,8 +291,8 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        880,
-        300
+        660,
+        340
       ],
       "notes": "'review' and 'rejected' end here on purpose. The applicant sits in the table and the pipeline is done with them. A step that cannot proceed without a decision it is not allowed to make should stop, not guess."
     },
@@ -313,19 +309,25 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        1980,
-        60
+        1760,
+        140
       ],
       "executeOnce": true,
       "onError": "continueRegularOutput",
-      "notes": "One row per execution, appended, never updated. onError continue because observability failing must not fail the work it is observing."
+      "notes": "One row per execution, appended, never updated. onError continue because observability failing must not fail the work it is observing.",
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     },
     {
       "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO dead_letters\n  (workflow_id, workflow_name, execution_id, execution_url, node, kind,\n   payload, attempts, error, reason)\nVALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10);",
         "options": {
-          "queryReplacement": "={{ [$workflow.id, $workflow.name, $execution.id, `${$env.N8N_EDITOR_BASE_URL}/workflow/${$workflow.id}/executions/${$execution.id}`, $prevNode.name, ({ 'Fetch applications': 'ingest', 'Valid?': 'screen', 'Send welcome email': 'onboard', 'Fetch posts': 'track' })[$prevNode.name] || 'unknown', JSON.stringify($json), $json.valid === false ? 1 : 4, $json.reason || $json.error?.message || String($json.error || 'unclassified failure'), $json.valid === false ? 'invalid' : 'exhausted'] }}"
+          "queryReplacement": "={{ [$workflow.id, $workflow.name, $execution.id, `${$('Config').first().json.config.editor_base_url}/workflow/${$workflow.id}/executions/${$execution.id}`, $prevNode.name, ({ 'Valid?': 'screen', 'Send welcome email': 'onboard', 'Fetch posts': 'track' })[$prevNode.name] || 'unknown', JSON.stringify($json), $json.valid === false ? 1 : 4, $json.reason || $json.error?.message || String($json.error || 'unclassified failure'), $json.valid === false ? 'invalid' : 'exhausted'] }}"
         }
       },
       "id": "a1000000-0000-4000-8000-00000000000f",
@@ -333,18 +335,24 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        660,
+        440,
         520
       ],
-      "notes": "A row, not a log line, so it can be replayed by 04 once the cause is fixed. reason distinguishes 'invalid' (never retry, the payload is wrong) from 'exhausted' (retried four times, the world was wrong)."
+      "notes": "A row, not a log line, so it can be replayed by 04 once the cause is fixed. reason distinguishes 'invalid' (never retry, the payload is wrong) from 'exhausted' (retried four times, the world was wrong).",
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.ALERT_WEBHOOK_URL }}",
+        "url": "={{ $('Config').first().json.config.alert_webhook_url }}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ text: `creator-program: ${$input.all().length} item(s) dead lettered in ${$workflow.name} run ${$execution.id}\\n${$env.N8N_EDITOR_BASE_URL}/workflow/${$workflow.id}/executions/${$execution.id}` }) }}",
+        "jsonBody": "={{ JSON.stringify({ text: `creator-program: ${$input.all().length} item(s) dead lettered in ${$workflow.name} run ${$execution.id}\\n${$('Config').first().json.config.editor_base_url}/workflow/${$workflow.id}/executions/${$execution.id}` }) }}",
         "options": {
           "timeout": 10000
         }
@@ -354,7 +362,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        880,
+        660,
         520
       ],
       "executeOnce": true,
@@ -363,47 +371,29 @@
     }
   ],
   "connections": {
-    "Every 6 hours": {
+    "Called per applicant": {
       "main": [
         [
           {
-            "node": "Fetch applications",
+            "node": "Config",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Fetch applications": {
+    "Config": {
       "main": [
         [
           {
-            "node": "One item per applicant",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Dead letter",
+            "node": "Attach config",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "One item per applicant": {
-      "main": [
-        [
-          {
-            "node": "Screen",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Replayed by 04": {
+    "Attach config": {
       "main": [
         [
           {

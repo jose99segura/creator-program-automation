@@ -157,7 +157,11 @@ table *ownership* and not merely privileges:
 ```bash
 psql "$DATABASE_URL" -f n8n/sql/01-schema.sql
 psql "$DATABASE_URL" -f n8n/sql/02-golden-set.sql
+psql "$DATABASE_URL" -f n8n/sql/03-config.sql
 ```
+
+Or `bash n8n/deploy.sh` on the box, which does all of it plus the import and
+runs the ownership and grant checks for you.
 
 ```sql
 -- Should return nothing.
@@ -165,15 +169,30 @@ select tablename, tableowner from pg_tables
  where schemaname = 'public' and tableowner <> 'creator_prod';
 ```
 
-### 2. The environment
+### 2. There is no environment to configure
 
-Copy `n8n/.env.example` into the n8n service's variables in Coolify. Two of
-them fail in ways that do not look like their cause:
+This used to be a list of variables. It is now one row per setting in the
+`config` table, because `$env` does not resolve on this instance — see *What
+the first run found* below.
 
-- `NODE_FUNCTION_ALLOW_BUILTIN=crypto` — without it the rules node throws at
-  execution time, not at import. The workflow looks fine until it runs.
-- `N8N_EDITOR_BASE_URL` — without it every alert links to
-  `undefined/workflow/...`, which you discover at the worst moment.
+The only thing that has to exist outside the database is credentials, and
+there are two:
+
+| Credential | Type | Used by |
+|---|---|---|
+| `creator_prod postgres` | Postgres | all 31 Postgres nodes, by the fixed id `creatorPgCred001` |
+| a replay token | Header Auth | the webhook in `04`, assigned in the UI |
+
+The Postgres credential can be imported (`n8n import:credentials`), which is
+what `deploy.sh` expects you to have done. The Header Auth one is worth doing
+by hand: it guards an endpoint that re-runs work which sends email, and it
+should not exist in a file anywhere.
+
+Changing a threshold afterwards is a `psql` one-liner and a re-run of `05`:
+
+```sql
+UPDATE config SET value = '8000', updated_at = now() WHERE key = 'min_followers';
+```
 
 ### 3. Import
 
@@ -197,9 +216,17 @@ docker cp n8n/workflows <n8n-container>:/tmp/wf
 docker exec <n8n-container> n8n import:workflow --separate --input=/tmp/wf
 ```
 
-Import order does not matter, because nothing is resolved at import time. The
-only thing left in the UI is assigning the Postgres credential to the nodes
-that use it, and activating.
+Import order does not matter, because nothing is resolved at import time.
+
+`import:workflow` sets every workflow **inactive**, including on a re-import
+of one that was active. Activation is a separate step, and in n8n 2.x it
+applies to sub-workflows too — `00` and `01` have no trigger of their own and
+still have to be active or every call into them fails:
+
+```bash
+docker exec <n8n> n8n update:workflow --id creatorRules0000 --active=true
+docker restart <n8n>          # the CLI says so, and it means it
+```
 
 One consequence to know: if these ids ever collide with a workflow already in
 your n8n, the import overwrites it. They are namespaced with `creator` for
@@ -239,14 +266,76 @@ connection points at a node that exists, every node is reachable from a
 trigger, and the two entry points into `01` are deliberate. That check is in
 CI.
 
-The SQL and the workflows have **not been executed against a live n8n
-instance or a real Postgres**. Treat this as a design that has been reviewed
-and not as a tested artifact; the Python implementation is the tested one. The
-first run will find things — a `queryReplacement` that needs a cast, a node
-typeVersion that has moved on. When it does, fix it here and delete this
-paragraph rather than leaving it as a permanent disclaimer.
+### Deployed, and the eval has run
 
-Two known gaps, stated rather than hidden:
+All eight workflows are imported into `n8n.senaproject.online` (n8n 2.10.2),
+against a `creator_prod` database and role in `postgres-shared`. The schema,
+the config table and the 46 labelled applications applied without an error,
+and ownership and grants were verified by query rather than assumed.
+
+`05` has run end to end through the real runtime, external task runner and
+all:
+
+```
+ruleset v3-two-thresholds    46 cases    39 correct
+accuracy 0.8478             macro F1 0.8623
+false accepts 2             false rejects 0
+```
+
+The seven failures are **exactly** the seven rows labelled `DISAGREES`. Every
+boundary case passed — 4,999 and 5,000, 19,999 and 20,000 — and so did every
+malformed record and every normalisation, the uppercase platform and the
+leading `@` included. That is the outcome the golden set was built to produce:
+the rules are right about everything a follower count can decide, and wrong
+about exactly the seven things it cannot.
+
+The two false accepts are worth more than the accuracy figure. Both are large
+accounts the rules like and a human would not — one with bought followers, one
+reposting other people's work — and there are zero false rejects. So the rules
+fail in the expensive direction, and no amount of threshold tuning fixes that,
+because followers is not the signal that separates those two rows. The next
+move is a new input, not a new number. That sentence is the entire reason to
+measure precision and recall separately.
+
+### What the first run found
+
+Two things, neither of which structural validation could have caught, and both
+of which fail silently:
+
+**`N8N_BLOCK_ENV_ACCESS_IN_NODE=true`.** Every `$env.X` on this instance
+resolves to undefined — in Code nodes and expressions alike — without raising
+anything. An undefined URL reads as a network error; an undefined threshold
+compares false against every number and would have accepted the entire intake.
+The fix was the `config` table, and it is a better design than the environment
+variables it replaced: a threshold now has an `updated_at`, and `eval_runs`
+records exactly which values produced each score.
+
+**A sub-workflow must be active to be callable.** In n8n 2.x, calling an
+inactive workflow fails with `Workflow is not active and cannot be executed`.
+`00` and `01` are therefore active even though neither has a trigger of its
+own, which looks wrong in the UI and is correct.
+
+### What is still untested
+
+- **The HTTP paths.** `applications_url`, `platform_api_url` and `mailer_url`
+  all point at `example.invalid` in the config table. The retry, error-output
+  and dead letter wiring around them is structurally checked and has never
+  actually fired.
+- **The replay.** `04` needs a Header Auth credential assigned in the UI
+  before its webhook will accept anything.
+- **Item pairing.** `01` avoids depending on n8n's `$('Node').item` pairing by
+  routing values through the database and through the API contract instead
+  (the posts endpoint must echo `tracking_code`). Pairing is the part of n8n
+  that breaks quietly under `splitOut` and error branches, and the avoidance
+  is deliberate — but the contract it depends on has not been exercised.
+- **Concurrency.** n8n in queue mode with several workers will run `01` twice
+  concurrently if a poll overruns. Every write here is idempotent, so that is
+  survivable, and it has not been tested under it.
+
+Current activation state, deliberately partial: `00`, `01`, `03` and `05` are
+active. `01a`, `02`, `04` and `06` are not, because their endpoints are still
+placeholders and an active workflow pointing at `example.invalid` generates
+real failures that teach nothing.
 
 - **Item pairing.** `01` avoids depending on n8n's `$('Node').item` pairing by
   routing values through the database and through the API contract instead
