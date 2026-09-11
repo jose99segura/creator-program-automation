@@ -174,21 +174,35 @@ them fail in ways that do not look like their cause:
 - `N8N_EDITOR_BASE_URL` — without it every alert links to
   `undefined/workflow/...`, which you discover at the worst moment.
 
-### 3. Import, in this order
+### 3. Import
 
-Order matters: each workflow references the id of one imported before it, and
-the ids only exist after import.
+Every workflow carries a **fixed id** at the top of its JSON —
+`creatorRules0000`, `creatorPipeline1`, and so on — and the cross-references
+between them are those ids rather than placeholders to fill in.
 
-1. `00-screening-rules.json`
-2. `03-error-handler.json`
-3. `01-pipeline.json` — set `REPLACE_WITH_00_...` on the **Screen** node
-4. `02`, `05`, `06`
-5. `04-dlq-replay.json` — set `REPLACE_WITH_01_...` on **Back into the pipeline**
+That is worth doing deliberately. n8n normally assigns a random id on import,
+which means every reference between workflows has to be pasted in by hand
+afterwards: the `Screen` node's target, the replay's target, and the Error
+Workflow setting on six workflows. Twenty edits, in the UI, in the right
+order, with no way to tell you missed one except a branch that silently never
+fires. Fixing the ids turns all of it into a file that imports.
 
-Then on **every** workflow: Settings → Error Workflow → `03 error handler`.
-The JSON carries a `REPLACE_WITH_03_...` placeholder, which n8n ignores. It
-has to be set in the UI, one workflow at a time, and forgetting one is a
-workflow whose crashes go nowhere.
+It also makes the import idempotent — re-importing updates the same workflows
+instead of creating a seventh copy — and it makes the repository the source
+of truth rather than the instance.
+
+```bash
+docker cp n8n/workflows <n8n-container>:/tmp/wf
+docker exec <n8n-container> n8n import:workflow --separate --input=/tmp/wf
+```
+
+Import order does not matter, because nothing is resolved at import time. The
+only thing left in the UI is assigning the Postgres credential to the nodes
+that use it, and activating.
+
+One consequence to know: if these ids ever collide with a workflow already in
+your n8n, the import overwrites it. They are namespaced with `creator` for
+that reason.
 
 ### 4. Activate, then make it fail on purpose
 

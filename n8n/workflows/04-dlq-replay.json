@@ -1,4 +1,5 @@
 {
+  "id": "creatorReplay004",
   "name": "04 dead letter replay",
   "nodes": [
     {
@@ -12,7 +13,10 @@
       "name": "Replay webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-880, 200],
+      "position": [
+        -880,
+        200
+      ],
       "notes": "POST {\"id\": 42} with an x-replay-token header. This is the endpoint that makes the dead letter a queue instead of a graveyard: once the cause is fixed, recovering the work is a request, not somebody writing UPDATE statements against production at midnight."
     },
     {
@@ -43,7 +47,10 @@
       "name": "Authorised?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [-660, 200],
+      "position": [
+        -660,
+        200
+      ],
       "notes": "An n8n webhook URL is public the moment the workflow is active, and this one re-runs work that can send email and compute money. A shared secret in a header is the minimum; put it in Coolify as REPLAY_TOKEN and never in the workflow. Note this compares strings directly rather than in constant time -- fine for a token nobody can guess and worth knowing you are choosing."
     },
     {
@@ -64,7 +71,10 @@
       "name": "Id from request",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [-440, 120]
+      "position": [
+        -440,
+        120
+      ]
     },
     {
       "parameters": {},
@@ -72,7 +82,10 @@
       "name": "Replay the oldest by hand",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [-880, 440],
+      "position": [
+        -880,
+        440
+      ],
       "notes": "The editor entry point, for when you are looking at the dead letter list and want to try one."
     },
     {
@@ -85,7 +98,10 @@
       "name": "Oldest open dead letter",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [-660, 440],
+      "position": [
+        -660,
+        440
+      ],
       "notes": "reason 'invalid' is excluded. A malformed payload will be exactly as malformed on a replay, so offering it up is offering a guaranteed second failure. Those need the source fixed, not the work re-run."
     },
     {
@@ -100,7 +116,10 @@
       "name": "Claim it",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [-220, 300]
+      "position": [
+        -220,
+        300
+      ]
     },
     {
       "parameters": {
@@ -130,7 +149,10 @@
       "name": "Claimed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [0, 300]
+      "position": [
+        0,
+        300
+      ]
     },
     {
       "parameters": {
@@ -161,7 +183,10 @@
       "name": "Replayable kind?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [220, 220],
+      "position": [
+        220,
+        220
+      ],
       "notes": "'payout' is deliberately not replayable from here. A held payout is not work that failed, it is a number a human has to agree with, and re-running the computation produces the same number. Wiring it up anyway would turn a deliberate stop into a button somebody presses to make the alert go away."
     },
     {
@@ -172,13 +197,16 @@
       "name": "Unwrap the payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [440, 140]
+      "position": [
+        440,
+        140
+      ]
     },
     {
       "parameters": {
         "workflowId": {
           "__rl": true,
-          "value": "REPLACE_WITH_01_PIPELINE_WORKFLOW_ID",
+          "value": "creatorPipeline1",
           "mode": "id"
         },
         "options": {
@@ -189,7 +217,10 @@
       "name": "Back into the pipeline",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
-      "position": [660, 140],
+      "position": [
+        660,
+        140
+      ],
       "onError": "continueErrorOutput",
       "notes": "Enters 01 through its 'Replayed by 04' trigger, not through the schedule, so one item is reprocessed rather than the whole poll. waitForSubWorkflow so that a replay that fails again is visible here instead of being fire and forget."
     },
@@ -205,7 +236,10 @@
       "name": "Record the replay",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [880, 140],
+      "position": [
+        880,
+        140
+      ],
       "onError": "continueRegularOutput"
     },
     {
@@ -220,7 +254,10 @@
       "name": "Release the claim",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [880, 340],
+      "position": [
+        880,
+        340
+      ],
       "notes": "Without this a failed replay leaves the row marked replayed, and the work is lost with a timestamp saying it was handled. That is worse than never having replayed it, because now nothing is counting it."
     },
     {
@@ -247,7 +284,10 @@
       "name": "Already replayed",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [220, 420],
+      "position": [
+        220,
+        420
+      ],
       "notes": "Refused, and says so plainly. A replay endpoint that silently does nothing on a double click teaches the operator that the button does not work, and the next thing they try is the database."
     },
     {
@@ -274,7 +314,10 @@
       "name": "Needs a person",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [440, 320]
+      "position": [
+        440,
+        320
+      ]
     },
     {
       "parameters": {
@@ -288,7 +331,10 @@
       "name": "Put it back",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [660, 320]
+      "position": [
+        660,
+        320
+      ]
     },
     {
       "parameters": {
@@ -308,59 +354,166 @@
       "name": "Unauthorised",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [-440, 300]
+      "position": [
+        -440,
+        300
+      ]
     }
   ],
   "connections": {
     "Replay webhook": {
-      "main": [[{ "node": "Authorised?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Authorised?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Authorised?": {
       "main": [
-        [{ "node": "Id from request", "type": "main", "index": 0 }],
-        [{ "node": "Unauthorised", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Id from request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unauthorised",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Id from request": {
-      "main": [[{ "node": "Claim it", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Claim it",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Replay the oldest by hand": {
-      "main": [[{ "node": "Oldest open dead letter", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Oldest open dead letter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Oldest open dead letter": {
-      "main": [[{ "node": "Claim it", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Claim it",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Claim it": {
-      "main": [[{ "node": "Claimed?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Claimed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Claimed?": {
       "main": [
-        [{ "node": "Replayable kind?", "type": "main", "index": 0 }],
-        [{ "node": "Already replayed", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Replayable kind?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Already replayed",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Replayable kind?": {
       "main": [
-        [{ "node": "Unwrap the payload", "type": "main", "index": 0 }],
-        [{ "node": "Needs a person", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Unwrap the payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Needs a person",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Needs a person": {
-      "main": [[{ "node": "Put it back", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Put it back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Unwrap the payload": {
-      "main": [[{ "node": "Back into the pipeline", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Back into the pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Back into the pipeline": {
       "main": [
-        [{ "node": "Record the replay", "type": "main", "index": 0 }],
-        [{ "node": "Release the claim", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Record the replay",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Release the claim",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
   "settings": {
     "executionOrder": "v1",
-    "errorWorkflow": "REPLACE_WITH_03_ERROR_HANDLER_WORKFLOW_ID",
+    "errorWorkflow": "creatorErrors003",
     "saveDataErrorExecution": "all",
     "saveDataSuccessExecution": "all",
     "saveExecutionProgress": true,

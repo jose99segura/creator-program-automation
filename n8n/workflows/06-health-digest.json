@@ -1,4 +1,5 @@
 {
+  "id": "creatorDigest006",
   "name": "06 health digest",
   "nodes": [
     {
@@ -16,7 +17,10 @@
       "name": "Every morning at 08:00",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [-660, 300],
+      "position": [
+        -660,
+        300
+      ],
       "notes": "The answer to 'is it working' should arrive without anyone opening n8n. If checking the health of an automation requires remembering to check it, it will be checked for three weeks."
     },
     {
@@ -29,7 +33,10 @@
       "name": "Collect the numbers",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [-440, 300]
+      "position": [
+        -440,
+        300
+      ]
     },
     {
       "parameters": {
@@ -39,7 +46,10 @@
       "name": "Compose the digest",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-220, 300]
+      "position": [
+        -220,
+        300
+      ]
     },
     {
       "parameters": {
@@ -56,7 +66,10 @@
       "name": "Send the digest",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [0, 300],
+      "position": [
+        0,
+        300
+      ],
       "onError": "continueErrorOutput",
       "notes": "Sent every day, all clear or not. A channel that is only ever used for bad news gives you no way to tell 'nothing went wrong' from 'the thing that sends the messages went wrong'."
     },
@@ -72,7 +85,10 @@
       "name": "Record the digest",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [220, 220],
+      "position": [
+        220,
+        220
+      ],
       "onError": "continueRegularOutput",
       "notes": "The digest records its own run, which is what stops it from being the one workflow whose silence nobody notices. If this row stops appearing, tomorrow's digest says NOTHING RAN about itself."
     },
@@ -88,29 +104,68 @@
       "name": "Digest undeliverable",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [220, 400]
+      "position": [
+        220,
+        400
+      ]
     }
   ],
   "connections": {
     "Every morning at 08:00": {
-      "main": [[{ "node": "Collect the numbers", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Collect the numbers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Collect the numbers": {
-      "main": [[{ "node": "Compose the digest", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Compose the digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Compose the digest": {
-      "main": [[{ "node": "Send the digest", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Send the digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Send the digest": {
       "main": [
-        [{ "node": "Record the digest", "type": "main", "index": 0 }],
-        [{ "node": "Digest undeliverable", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Record the digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Digest undeliverable",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
   "settings": {
     "executionOrder": "v1",
-    "errorWorkflow": "REPLACE_WITH_03_ERROR_HANDLER_WORKFLOW_ID",
+    "errorWorkflow": "creatorErrors003",
     "saveDataErrorExecution": "all",
     "saveDataSuccessExecution": "all",
     "saveExecutionProgress": true,

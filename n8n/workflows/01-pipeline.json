@@ -1,4 +1,5 @@
 {
+  "id": "creatorPipeline1",
   "name": "01 creator pipeline",
   "nodes": [
     {
@@ -16,7 +17,10 @@
       "name": "Every 6 hours",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [-660, 300],
+      "position": [
+        -660,
+        300
+      ],
       "notes": "Poll, not webhook, because the source is a form export. A webhook would be better and the design does not change: swap this node, everything downstream is untouched."
     },
     {
@@ -30,7 +34,10 @@
       "name": "Fetch applications",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-440, 300],
+      "position": [
+        -440,
+        300
+      ],
       "retryOnFail": true,
       "maxTries": 4,
       "waitBetweenTries": 5000,
@@ -46,7 +53,10 @@
       "name": "One item per applicant",
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
-      "position": [-220, 220],
+      "position": [
+        -220,
+        220
+      ],
       "notes": "Same reason as steps/ingest.py: one bad applicant must not fail the batch. From here on every node runs per item."
     },
     {
@@ -57,14 +67,17 @@
       "name": "Replayed by 04",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
-      "position": [-220, 440],
+      "position": [
+        -220,
+        440
+      ],
       "notes": "The second entry point. A replay joins here, one item, downstream of the fetch -- so recovering one failed applicant does not re-poll the whole source and re-process the other four hundred. The steps below cannot tell the difference between an item that arrived on the schedule and one that arrived on a replay, and that is the property the whole design is protecting."
     },
     {
       "parameters": {
         "workflowId": {
           "__rl": true,
-          "value": "REPLACE_WITH_00_SCREENING_RULES_WORKFLOW_ID",
+          "value": "creatorRules0000",
           "mode": "id"
         },
         "options": {
@@ -75,7 +88,10 @@
       "name": "Screen",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
-      "position": [0, 220],
+      "position": [
+        0,
+        220
+      ],
       "notes": "Calls 00 screening rules. The decision lives in one workflow so that 05 eval can score the same code production runs, instead of a copy that drifts."
     },
     {
@@ -107,7 +123,10 @@
       "name": "Valid?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [220, 220],
+      "position": [
+        220,
+        220
+      ],
       "notes": "A malformed application is data, not an outage. It is dead lettered with reason 'invalid' and never retried, because the payload will be exactly as malformed in five seconds."
     },
     {
@@ -122,7 +141,10 @@
       "name": "Store applicant",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [440, 140],
+      "position": [
+        440,
+        140
+      ],
       "notes": "queryReplacement is an ARRAY expression, not a comma-separated string. With a string, any value containing a comma (JSON, a reason sentence) shifts every parameter after it by one and the insert either fails or writes the wrong column."
     },
     {
@@ -153,7 +175,10 @@
       "name": "Accepted?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [660, 140],
+      "position": [
+        660,
+        140
+      ],
       "notes": "Reads the status the database returned, not the one the rules computed. That is what makes a human override stick."
     },
     {
@@ -168,7 +193,10 @@
       "name": "Create creator",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [880, 60],
+      "position": [
+        880,
+        60
+      ],
       "notes": "The WHERE s.status = 'accepted' is a second gate on purpose: this node cannot create a creator out of a rejected applicant even if it is called directly by a replay."
     },
     {
@@ -186,7 +214,10 @@
       "name": "Send welcome email",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1100, 60],
+      "position": [
+        1100,
+        60
+      ],
       "retryOnFail": true,
       "maxTries": 4,
       "waitBetweenTries": 5000,
@@ -213,7 +244,10 @@
       "name": "Fetch posts",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1320, 60],
+      "position": [
+        1320,
+        60
+      ],
       "retryOnFail": true,
       "maxTries": 4,
       "waitBetweenTries": 5000,
@@ -230,7 +264,10 @@
       "name": "One item per post",
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
-      "position": [1540, 60],
+      "position": [
+        1540,
+        60
+      ],
       "notes": "include: allOtherFields is what carries the echoed tracking_code onto each post."
     },
     {
@@ -245,7 +282,10 @@
       "name": "Upsert posts",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [1760, 60],
+      "position": [
+        1760,
+        60
+      ],
       "notes": "views has a CHECK constraint in the schema, so a provider returning a nonsense number fails this insert instead of turning into a nonsense transfer two workflows later."
     },
     {
@@ -254,7 +294,10 @@
       "name": "Waiting for a human",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [880, 300],
+      "position": [
+        880,
+        300
+      ],
       "notes": "'review' and 'rejected' end here on purpose. The applicant sits in the table and the pipeline is done with them. A step that cannot proceed without a decision it is not allowed to make should stop, not guess."
     },
     {
@@ -269,7 +312,10 @@
       "name": "Record run",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [1980, 60],
+      "position": [
+        1980,
+        60
+      ],
       "executeOnce": true,
       "onError": "continueRegularOutput",
       "notes": "One row per execution, appended, never updated. onError continue because observability failing must not fail the work it is observing."
@@ -286,7 +332,10 @@
       "name": "Dead letter",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [660, 520],
+      "position": [
+        660,
+        520
+      ],
       "notes": "A row, not a log line, so it can be replayed by 04 once the cause is fixed. reason distinguishes 'invalid' (never retry, the payload is wrong) from 'exhausted' (retried four times, the world was wrong)."
     },
     {
@@ -304,7 +353,10 @@
       "name": "Alert once per run",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [880, 520],
+      "position": [
+        880,
+        520
+      ],
       "executeOnce": true,
       "onError": "continueRegularOutput",
       "notes": "executeOnce is the whole point: a provider outage fails every item, and thirty failures must not send thirty messages. Alert fatigue is how real failures end up ignored. onError continue so a broken alert channel never fails the run."
@@ -312,66 +364,198 @@
   ],
   "connections": {
     "Every 6 hours": {
-      "main": [[{ "node": "Fetch applications", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Fetch applications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Fetch applications": {
       "main": [
-        [{ "node": "One item per applicant", "type": "main", "index": 0 }],
-        [{ "node": "Dead letter", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "One item per applicant",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dead letter",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "One item per applicant": {
-      "main": [[{ "node": "Screen", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Screen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Replayed by 04": {
-      "main": [[{ "node": "Screen", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Screen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Screen": {
-      "main": [[{ "node": "Valid?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Valid?": {
       "main": [
-        [{ "node": "Store applicant", "type": "main", "index": 0 }],
-        [{ "node": "Dead letter", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Store applicant",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dead letter",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Store applicant": {
-      "main": [[{ "node": "Accepted?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Accepted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Accepted?": {
       "main": [
-        [{ "node": "Create creator", "type": "main", "index": 0 }],
-        [{ "node": "Waiting for a human", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Create creator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Waiting for a human",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Create creator": {
-      "main": [[{ "node": "Send welcome email", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Send welcome email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Send welcome email": {
       "main": [
-        [{ "node": "Fetch posts", "type": "main", "index": 0 }],
-        [{ "node": "Dead letter", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Fetch posts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dead letter",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Fetch posts": {
       "main": [
-        [{ "node": "One item per post", "type": "main", "index": 0 }],
-        [{ "node": "Dead letter", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "One item per post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dead letter",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "One item per post": {
-      "main": [[{ "node": "Upsert posts", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Upsert posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Upsert posts": {
-      "main": [[{ "node": "Record run", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Record run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Dead letter": {
-      "main": [[{ "node": "Alert once per run", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Alert once per run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
     "executionOrder": "v1",
-    "errorWorkflow": "REPLACE_WITH_03_ERROR_HANDLER_WORKFLOW_ID",
+    "errorWorkflow": "creatorErrors003",
     "saveDataErrorExecution": "all",
     "saveDataSuccessExecution": "all",
     "saveExecutionProgress": true,

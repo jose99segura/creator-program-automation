@@ -1,4 +1,5 @@
 {
+  "id": "creatorRules0000",
   "name": "00 screening rules",
   "nodes": [
     {
@@ -9,7 +10,10 @@
       "name": "Called by another workflow",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
-      "position": [-320, 300],
+      "position": [
+        -320,
+        300
+      ],
       "notes": "Takes applications in, returns them with a decision attached. Called by 01 pipeline and by 05 eval, and by nothing else."
     },
     {
@@ -20,13 +24,24 @@
       "name": "Validate and decide",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-80, 300],
+      "position": [
+        -80,
+        300
+      ],
       "notes": "Pure function: no HTTP, no database, no side effects. That is what makes it testable against a golden set at all."
     }
   ],
   "connections": {
     "Called by another workflow": {
-      "main": [[{ "node": "Validate and decide", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Validate and decide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {

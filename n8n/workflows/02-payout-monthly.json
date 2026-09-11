@@ -1,4 +1,5 @@
 {
+  "id": "creatorPayout002",
   "name": "02 payout monthly",
   "nodes": [
     {
@@ -16,7 +17,10 @@
       "name": "First of the month",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [-660, 300],
+      "position": [
+        -660,
+        300
+      ],
       "notes": "Separate workflow from the pipeline because it runs on a different clock. Tracking polls every six hours; money is computed once a month. Putting both on the same trigger means either paying twelve times too often or tracking twelve times too rarely."
     },
     {
@@ -27,7 +31,10 @@
       "name": "Period",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-440, 300]
+      "position": [
+        -440,
+        300
+      ]
     },
     {
       "parameters": {
@@ -41,7 +48,10 @@
       "name": "Previous period total",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [-220, 300],
+      "position": [
+        -220,
+        300
+      ],
       "notes": "period_end = this period's start, because the intervals are half-open and therefore touch exactly."
     },
     {
@@ -56,7 +66,10 @@
       "name": "Recompute payouts",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [0, 300],
+      "position": [
+        0,
+        300
+      ],
       "notes": "ON CONFLICT DO UPDATE on (creator, period) makes a second run for the same month an update rather than a second payout. Running this workflow twice by hand is safe, and that is deliberate: the failure mode of an unsafe payout job is that nobody dares re-run it after a partial failure."
     },
     {
@@ -67,7 +80,10 @@
       "name": "Sanity check",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [220, 300]
+      "position": [
+        220,
+        300
+      ]
     },
     {
       "parameters": {
@@ -98,7 +114,10 @@
       "name": "Within bounds?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [440, 300]
+      "position": [
+        440,
+        300
+      ]
     },
     {
       "parameters": {
@@ -112,7 +131,10 @@
       "name": "Record run",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [660, 200],
+      "position": [
+        660,
+        200
+      ],
       "onError": "continueRegularOutput"
     },
     {
@@ -130,7 +152,10 @@
       "name": "Report the total",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [880, 200],
+      "position": [
+        880,
+        200
+      ],
       "onError": "continueRegularOutput",
       "notes": "A successful run says what it did. A workflow that is only ever heard from when it breaks is one you stop trusting when it goes quiet, because silence and death look identical."
     },
@@ -146,7 +171,10 @@
       "name": "Hold for review",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [660, 420],
+      "position": [
+        660,
+        420
+      ],
       "notes": "reason 'permanent', because retrying computes the same suspicious number again. This one needs a person, and the dead letter is how it gets counted instead of scrolled past."
     },
     {
@@ -164,43 +192,114 @@
       "name": "Alert the hold",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [880, 420],
+      "position": [
+        880,
+        420
+      ],
       "onError": "continueRegularOutput",
       "notes": "Says explicitly that nothing was transferred. An alert that leaves the reader unsure whether money moved gets escalated at 3am whether or not it needed to be."
     }
   ],
   "connections": {
     "First of the month": {
-      "main": [[{ "node": "Period", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Period",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Period": {
-      "main": [[{ "node": "Previous period total", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Previous period total",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Previous period total": {
-      "main": [[{ "node": "Recompute payouts", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Recompute payouts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Recompute payouts": {
-      "main": [[{ "node": "Sanity check", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Sanity check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Sanity check": {
-      "main": [[{ "node": "Within bounds?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Within bounds?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Within bounds?": {
       "main": [
-        [{ "node": "Record run", "type": "main", "index": 0 }],
-        [{ "node": "Hold for review", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Record run",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hold for review",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Record run": {
-      "main": [[{ "node": "Report the total", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Report the total",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Hold for review": {
-      "main": [[{ "node": "Alert the hold", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Alert the hold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
     "executionOrder": "v1",
-    "errorWorkflow": "REPLACE_WITH_03_ERROR_HANDLER_WORKFLOW_ID",
+    "errorWorkflow": "creatorErrors003",
     "saveDataErrorExecution": "all",
     "saveDataSuccessExecution": "all",
     "saveExecutionProgress": true,

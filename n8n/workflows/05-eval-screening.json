@@ -1,4 +1,5 @@
 {
+  "id": "creatorEval00005",
   "name": "05 eval screening",
   "nodes": [
     {
@@ -7,7 +8,10 @@
       "name": "Run the eval",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [-880, 200],
+      "position": [
+        -880,
+        200
+      ],
       "notes": "Run this before and after touching a threshold. The number on its own is close to meaningless; the number compared against the run before the change is the whole tool."
     },
     {
@@ -25,7 +29,10 @@
       "name": "Every Monday",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [-880, 400],
+      "position": [
+        -880,
+        400
+      ],
       "notes": "Also on a schedule, because the rules are not the only thing that can change the score. An environment variable edited in Coolify, a threshold someone tuned in the editor, a normalisation that quietly changed: all of those move accuracy without a commit to look at."
     },
     {
@@ -38,7 +45,10 @@
       "name": "Previous eval",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [-660, 300]
+      "position": [
+        -660,
+        300
+      ]
     },
     {
       "parameters": {
@@ -50,13 +60,16 @@
       "name": "Load golden set",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [-440, 300]
+      "position": [
+        -440,
+        300
+      ]
     },
     {
       "parameters": {
         "workflowId": {
           "__rl": true,
-          "value": "REPLACE_WITH_00_SCREENING_RULES_WORKFLOW_ID",
+          "value": "creatorRules0000",
           "mode": "id"
         },
         "options": {
@@ -67,7 +80,10 @@
       "name": "Score with the real rules",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
-      "position": [-220, 300],
+      "position": [
+        -220,
+        300
+      ],
       "notes": "The same workflow 01 calls in production, with the same environment variables. This is the only node in the repository that would be pointless to reimplement here, and it is the reason the ruleset is a sub-workflow at all: an eval that scores a copy of the rules measures the copy."
     },
     {
@@ -78,7 +94,10 @@
       "name": "Compare",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [0, 300]
+      "position": [
+        0,
+        300
+      ]
     },
     {
       "parameters": {
@@ -92,7 +111,10 @@
       "name": "Store the score",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [220, 300],
+      "position": [
+        220,
+        300
+      ],
       "notes": "Appended, never updated, and stamped with the ruleset version and the thresholds it ran under. Overwriting a single 'current accuracy' row makes every question about direction unanswerable, and direction is the only thing this number is good for."
     },
     {
@@ -103,7 +125,10 @@
       "name": "One item per case",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [440, 300]
+      "position": [
+        440,
+        300
+      ]
     },
     {
       "parameters": {
@@ -117,7 +142,10 @@
       "name": "Store the cases",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [660, 300]
+      "position": [
+        660,
+        300
+      ]
     },
     {
       "parameters": {
@@ -148,7 +176,10 @@
       "name": "Regressed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [880, 300],
+      "position": [
+        880,
+        300
+      ],
       "executeOnce": true,
       "notes": "A two point drop, not any drop. On 46 cases one row is 2.2 points, so a tighter threshold would fire on normal movement and get muted within a month. The tolerance is a function of the dataset size, and it has to move when the dataset does."
     },
@@ -167,7 +198,10 @@
       "name": "Alert the regression",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1100, 200],
+      "position": [
+        1100,
+        200
+      ],
       "executeOnce": true,
       "onError": "continueRegularOutput"
     },
@@ -186,7 +220,10 @@
       "name": "Report the score",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1100, 400],
+      "position": [
+        1100,
+        400
+      ],
       "executeOnce": true,
       "onError": "continueRegularOutput",
       "notes": "The score is reported whether or not it moved. A quality metric you only hear about when it drops is one nobody has a sense of, and without that sense the first drop reads as noise."
@@ -194,42 +231,126 @@
   ],
   "connections": {
     "Run the eval": {
-      "main": [[{ "node": "Previous eval", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Previous eval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Every Monday": {
-      "main": [[{ "node": "Previous eval", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Previous eval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Previous eval": {
-      "main": [[{ "node": "Load golden set", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Load golden set",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Load golden set": {
-      "main": [[{ "node": "Score with the real rules", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Score with the real rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Score with the real rules": {
-      "main": [[{ "node": "Compare", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Compare",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Compare": {
-      "main": [[{ "node": "Store the score", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Store the score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Store the score": {
-      "main": [[{ "node": "One item per case", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "One item per case",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "One item per case": {
-      "main": [[{ "node": "Store the cases", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Store the cases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Store the cases": {
-      "main": [[{ "node": "Regressed?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Regressed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Regressed?": {
       "main": [
-        [{ "node": "Alert the regression", "type": "main", "index": 0 }],
-        [{ "node": "Report the score", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Alert the regression",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report the score",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
   "settings": {
     "executionOrder": "v1",
-    "errorWorkflow": "REPLACE_WITH_03_ERROR_HANDLER_WORKFLOW_ID",
+    "errorWorkflow": "creatorErrors003",
     "saveDataErrorExecution": "all",
     "saveDataSuccessExecution": "all",
     "saveExecutionProgress": true,
