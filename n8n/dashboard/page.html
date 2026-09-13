@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Creator program</title>
+<style>
+:root{
+  --bg:#f6f6f3;--surface:#fff;--line:#e8e7e2;--line-2:#d8d7d0;
+  --text:#191917;--muted:#6b6a64;--faint:#9a9992;
+  --accent:#4338ca;--accent-soft:#eef0ff;--on-accent:#fff;
+  --ok:#15803d;--ok-soft:#e9f5ed;--warn:#b45309;--warn-soft:#fdf3e4;
+  --bad:#b91c1c;--bad-soft:#fdeded;--idle:#8a8983;--idle-soft:#efeeea;
+  --r:14px;--mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#111110;--surface:#1a1a18;--line:#292926;--line-2:#363632;
+  --text:#ecebe6;--muted:#a3a29b;--faint:#74736d;
+  --accent:#a5b4fc;--accent-soft:#222540;--on-accent:#111110;
+  --ok:#4ade80;--ok-soft:#14261a;--warn:#fbbf24;--warn-soft:#2a2113;
+  --bad:#f87171;--bad-soft:#2c1717;--idle:#8a8983;--idle-soft:#23231f;
+}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--bg);color:var(--text)}
+body{font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 24px 48px}
+h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.01em}
+h1{font-size:20px}h2{font-size:15px}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.num{font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}.faint{color:var(--faint)}
+
+.top{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:22px}
+.brand{display:flex;align-items:center;gap:12px}
+.mark{width:34px;height:34px;border-radius:10px;background:var(--accent);position:relative}
+.mark:after{content:"";position:absolute;inset:9px;border:2.5px solid var(--on-accent);border-radius:50%;border-right-color:transparent}
+.sub{margin:1px 0 0;font-size:13px;color:var(--muted)}
+.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.inline{display:inline;margin:0}
+
+.btn{font:inherit;font-size:14px;font-weight:500;border-radius:10px;padding:8px 14px;border:1px solid var(--line-2);background:var(--surface);color:var(--text);cursor:pointer;transition:background .15s,border-color .15s,transform .05s}
+.btn:hover{border-color:var(--faint)}.btn:active{transform:scale(.98)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.small{font-size:13px;padding:5px 10px;border-radius:8px}
+
+.live{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--muted);padding:0 6px}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 var(--ok);animation:p 2s infinite}
+.live.off .pulse{background:var(--idle);animation:none}
+@keyframes p{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 55%,transparent)}70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
+@media (prefers-reduced-motion:reduce){.pulse{animation:none}}
+
+.flash{border-radius:12px;padding:11px 14px;margin:0 0 18px;font-size:14px;background:var(--accent-soft);color:var(--text);border:1px solid color-mix(in srgb,var(--accent) 25%,transparent)}
+.flash.warn{background:var(--warn-soft);border-color:color-mix(in srgb,var(--warn) 30%,transparent)}
+.flash.bad{background:var(--bad-soft);border-color:color-mix(in srgb,var(--bad) 30%,transparent)}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:14px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
+.kpi .l{font-size:12.5px;color:var(--muted)}
+.kpi .v{font-size:26px;font-weight:600;letter-spacing:-.02em;margin:4px 0 2px}
+.kpi .f{font-size:12.5px;color:var(--faint)}
+.kpi.bad .v{color:var(--bad)}.kpi.ok .v{color:var(--ok)}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;margin-bottom:14px;min-width:0}
+.card-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:14px}
+.card-head p{margin:3px 0 0;font-size:13px;color:var(--muted)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:14px}
+.grid2>.card{margin-bottom:0}.grid2{margin-bottom:14px}
+
+.flow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+@media (max-width:860px){.flow{grid-template-columns:1fr 1fr}}
+@media (max-width:520px){.flow{grid-template-columns:1fr}}
+.stage{position:relative;border:1px solid var(--line);border-radius:12px;padding:12px 14px 12px;background:var(--bg)}
+.stage .n{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:6px;font-size:11.5px;font-weight:600;background:var(--accent-soft);color:var(--accent)}
+.stage h3{font-size:14px;margin:8px 0 2px}
+.stage .v{font-size:22px;font-weight:600;letter-spacing:-.02em}
+.stage p{margin:4px 0 8px;font-size:12.5px;color:var(--muted);line-height:1.45}
+.stage a{font-size:12.5px}
+@media (min-width:861px){.stage:not(:last-child):after{content:"";position:absolute;right:-8px;top:50%;width:6px;height:6px;border-top:1.5px solid var(--faint);border-right:1.5px solid var(--faint);transform:translateY(-50%) rotate(45deg)}}
+
+.bar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--idle-soft);gap:2px}
+.bar span{display:block;height:100%;min-width:3px}
+.legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:14px}
+.legend div{display:flex;flex-direction:column;gap:1px}
+.legend b{font-size:20px;font-weight:600}
+.legend small{font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.sw{width:9px;height:9px;border-radius:3px;display:inline-block}
+
+.evalrow{display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px}
+.big{font-size:40px;font-weight:600;letter-spacing:-.03em;line-height:1}
+.stats{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.stats b{color:var(--text);font-weight:600}
+.dots{display:grid;grid-template-columns:repeat(auto-fill,16px);gap:6px}
+.dot{width:16px;height:16px;border-radius:5px;border:0;padding:0;cursor:pointer;background:var(--ok);opacity:.85}
+.dot.wrong{background:var(--bad);opacity:1}
+.dot:hover,.dot:focus-visible,.dot.sel{outline:2px solid var(--text);outline-offset:2px;opacity:1}
+.detail{margin-top:12px;min-height:42px;font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:10px}
+.detail b{color:var(--text);font-weight:600}
+
+.list{display:flex;flex-direction:column}
+.row{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px;min-width:0}
+.row:first-child{border-top:0;padding-top:2px}
+.row .grow{flex:1;min-width:0}
+.row .meta{font-size:12.5px;color:var(--faint);white-space:nowrap}
+.sdot{width:8px;height:8px;border-radius:50%;flex:none}
+.pill{display:inline-block;font-size:11.5px;font-weight:500;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.p-ok{background:var(--ok-soft);color:var(--ok)}.p-warn{background:var(--warn-soft);color:var(--warn)}
+.p-bad{background:var(--bad-soft);color:var(--bad)}.p-idle{background:var(--idle-soft);color:var(--muted)}
+.err{font-family:var(--mono);font-size:12px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:2px;word-break:break-word}
+.dl{align-items:flex-start}
+.dl .right{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.empty{padding:18px 0 8px;font-size:13.5px;color:var(--muted)}
+
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;font-weight:500;font-size:12.5px;color:var(--muted);padding:0 10px 8px 0;border-bottom:1px solid var(--line)}
+td{padding:10px 10px 10px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+th.r,td.r{text-align:right}
+code{font-family:var(--mono);font-size:12.5px}
+
+.foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;font-size:12.5px;color:var(--faint);margin-top:22px}
+.foot nav{display:flex;gap:12px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"></div>
+      <div>
+        <h1>Creator program</h1>
+        <p class="sub" id="source"></p>
+      </div>
+    </div>
+    <div class="actions" id="actions">
+      <span class="live" id="live" role="status"><span class="pulse"></span><span id="live-text"></span></span>
+      <button class="btn" id="pause" type="button"></button>
+    </div>
+  </header>
+
+  <div class="flash" id="flash" role="status" hidden></div>
+  <div class="flash warn" id="sample" hidden>Datos de ejemplo. Esta página no está recibiendo datos reales de la base de datos.</div>
+
+  <section class="kpis" id="kpis" aria-label="Resumen"></section>
+
+  <section class="card">
+    <div class="card-head">
+      <div>
+        <h2>Cómo fluye</h2>
+        <p>Cada solicitud pasa por estas cinco etapas. Cada etapa es un workflow de n8n.</p>
+      </div>
+    </div>
+    <div class="flow" id="flow"></div>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2>Qué se decidió</h2>
+          <p>Toda solicitud se guarda, también las rechazadas.</p>
+        </div>
+      </div>
+      <div class="bar" id="bar" role="img"></div>
+      <div class="legend" id="legend"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2>¿Aciertan las reglas?</h2>
+          <p>Solicitudes etiquetadas a mano. Pulsa un cuadro para ver el caso.</p>
+        </div>
+        <div id="eval-action"></div>
+      </div>
+      <div id="eval"></div>
+    </section>
+  </div>
+
+  <div class="grid2">
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2>Actividad reciente</h2>
+          <p>Cada ejecución deja una fila. Si esto se vacía, algo se paró.</p>
+        </div>
+      </div>
+      <div class="list" id="runs"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2>Necesita atención</h2>
+          <p>Fallos guardados para reintentar cuando se arregle la causa.</p>
+        </div>
+      </div>
+      <div class="list" id="dls"></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <div class="card-head">
+      <div>
+        <h2>Creadores</h2>
+        <p>Dados de alta, con lo que han publicado y lo que se les debe.</p>
+      </div>
+    </div>
+    <div class="tablewrap" id="creators"></div>
+  </section>
+
+  <footer class="foot" id="foot"></footer>
+</div>
+
+<script>const STATE = /*__STATE__*/null;</script>
+<script>
+(function () {
+  'use strict';
+
+  // Rendered on the server, embedded as JSON, drawn here. No fetch at all.
+  //
+  // n8n serves webhook HTML with a CSP sandbox and no allow-same-origin, which
+  // gives this document an opaque origin: a fetch back to the API would be
+  // cross-origin, carry no credentials, and fail. So the data arrives inside
+  // the page, actions are plain form posts, and "live" is a reload. Every one
+  // of those works whether or not the sandbox is there.
+  //
+  // Everything that came from the database is untrusted -- applicant handles,
+  // error messages, notes -- so nothing here ever uses innerHTML. Text goes in
+  // through textContent and links are checked before they become hrefs.
+
+  var REFRESH_SECONDS = 8;
+  var ACTION_URL = '/webhook/creator-program/dashboard/action';
+  var WF = {
+    poller: 'creatorPoller01a', rules: 'creatorRules0000', pipeline: 'creatorPipeline1',
+    payout: 'creatorPayout002', errors: 'creatorErrors003', replay: 'creatorReplay004',
+    evalwf: 'creatorEval00005', digest: 'creatorDigest006', dashboard: 'creatorDash00007'
+  };
+  var REPLAYABLE = ['ingest', 'screen', 'onboard', 'track'];
+
+  var S = STATE || sample();
+  var isSample = !STATE;
+
+  var nf = new Intl.NumberFormat('es-ES');
+  var eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
+  var dateFmt = new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short' });
+  var timeFmt = new Intl.DateTimeFormat('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  // ---- tiny helpers --------------------------------------------------------
+
+  function h(tag, props) {
+    var e = document.createElement(tag);
+    props = props || {};
+    Object.keys(props).forEach(function (k) {
+      var v = props[k];
+      if (v == null) return;
+      if (k === 'text') e.textContent = String(v);
+      else if (k === 'class') e.className = v;
+      else e.setAttribute(k, String(v));
+    });
+    for (var i = 2; i < arguments.length; i++) {
+      var c = arguments[i];
+      if (c == null || c === false) continue;
+      e.appendChild(typeof c === 'object' ? c : document.createTextNode(String(c)));
+    }
+    return e;
+  }
+
+  function mount(id, node) {
+    var root = document.getElementById(id);
+    root.textContent = '';
+    if (node) root.appendChild(node);
+    return root;
+  }
+
+  function safeBase(u) {
+    try {
+      var x = new URL(String(u));
+      return x.protocol === 'https:' ? x.origin : null;
+    } catch (e) { return null; }
+  }
+
+  function safeHref(u) {
+    try {
+      var x = new URL(String(u));
+      return x.protocol === 'https:' ? x.href : null;
+    } catch (e) { return null; }
+  }
+
+  function wfLink(id, label) {
+    var base = safeBase(S.editor_base_url);
+    if (!base) return h('span', { class: 'faint', text: label });
+    return h('a', { href: base + '/workflow/' + id, target: '_blank', rel: 'noopener', text: label });
+  }
+
+  function ago(ts) {
+    if (!ts) return '';
+    var s = Math.max(0, Math.round((Date.now() - new Date(ts).getTime()) / 1000));
+    if (s < 60) return 'hace ' + s + ' s';
+    var m = Math.round(s / 60);
+    if (m < 60) return 'hace ' + m + ' min';
+    var hr = Math.round(m / 60);
+    if (hr < 48) return 'hace ' + hr + ' h';
+    return 'hace ' + Math.round(hr / 24) + ' d';
+  }
+
+  function pct(n) {
+    return n == null ? '—' : (Number(n) * 100).toFixed(1).replace('.', ',') + ' %';
+  }
+
+  function dec(n, d) {
+    return n == null ? '—' : Number(n).toFixed(d).replace('.', ',');
+  }
+
+  function euros(cents) {
+    return eur.format(Number(cents || 0) / 100);
+  }
+
+  // ---- page state carried in the URL hash ---------------------------------
+  //
+  // The hash survives a reload and needs no storage, which matters because
+  // localStorage throws in an opaque-origin document. It carries the scroll
+  // position, the paused flag, and a one-shot message after an action.
+
+  var hp = new URLSearchParams(location.hash.slice(1));
+  var paused = hp.get('p') === '1';
+  var flashKey = hp.get('f');
+
+  function hashFor(extra) {
+    var p = new URLSearchParams();
+    p.set('y', String(Math.round(window.scrollY)));
+    if (paused) p.set('p', '1');
+    if (extra) Object.keys(extra).forEach(function (k) { p.set(k, extra[k]); });
+    return '#' + p.toString();
+  }
+
+  // ---- actions --------------------------------------------------------------
+  //
+  // Plain HTML forms, and a synchroniser token in each one. Basic auth is
+  // attached by the browser to any request for this URL, including one a
+  // different site triggers by posting a form here -- so authentication alone
+  // does not stop another page from launching a replay. The token only exists
+  // inside this rendered page, which another origin cannot read.
+
+  function actionForm(action, label, cls, extra) {
+    var f = h('form', { method: 'post', action: ACTION_URL, class: 'inline' });
+    f.appendChild(h('input', { type: 'hidden', name: 'action', value: action }));
+    f.appendChild(h('input', { type: 'hidden', name: 'token', value: S.action_token || '' }));
+    Object.keys(extra || {}).forEach(function (k) {
+      f.appendChild(h('input', { type: 'hidden', name: k, value: extra[k] }));
+    });
+    var b = h('button', { type: 'submit', class: 'btn ' + (cls || ''), text: label });
+    if (isSample) { b.disabled = true; b.title = 'No disponible con datos de ejemplo'; }
+    f.addEventListener('submit', function () {
+      stopTimer();
+      b.disabled = true;
+      b.textContent = 'Lanzando…';
+    });
+    f.appendChild(b);
+    return f;
+  }
+
+  // ---- sections -------------------------------------------------------------
+
+  function renderHeader() {
+    document.getElementById('source').textContent = isSample
+      ? 'Vista previa con datos de ejemplo'
+      : 'En vivo desde n8n · base de datos creator_prod';
+
+    var actions = document.getElementById('actions');
+    actions.appendChild(actionForm('eval', 'Evaluar reglas', ''));
+    actions.appendChild(actionForm('poll', 'Lanzar captación', 'primary'));
+  }
+
+  function renderKpis() {
+    var f = S.funnel || {};
+    var applicants = (f.accepted || 0) + (f.review || 0) + (f.rejected || 0) + (S.invalid_total || 0);
+    var creators = (S.creators || []).length;
+    var ev = S.eval;
+    var pay = S.payout;
+    var open = S.dead_letters_open || 0;
+
+    var kpis = h('div', { style: 'display:contents' });
+    function kpi(label, value, foot, tone) {
+      kpis.appendChild(h('div', { class: 'kpi ' + (tone || '') },
+        h('div', { class: 'l', text: label }),
+        h('div', { class: 'v num', text: value }),
+        h('div', { class: 'f', text: foot })));
+    }
+
+    kpi('Solicitudes', nf.format(applicants), nf.format(f.review || 0) + ' esperando a una persona');
+    kpi('Creadores', nf.format(creators), 'con código de seguimiento');
+    kpi('Visitas rastreadas', nf.format(S.views_total || 0), 'en ' + nf.format(S.posts_total || 0) + ' posts');
+    kpi('A pagar', pay ? euros(pay.total_cents) : '—',
+        pay ? periodLabel(pay) : 'ningún periodo calculado');
+    kpi('Aciertos de las reglas', ev ? pct(ev.accuracy) : '—',
+        ev ? 'macro F1 ' + dec(ev.macro_f1, 2) : 'aún sin evaluar');
+    kpi('Fallos pendientes', nf.format(open), open ? 'por revisar' : 'nada pendiente', open ? 'bad' : 'ok');
+
+    mount('kpis', kpis);
+  }
+
+  function periodLabel(p) {
+    var end = new Date(p.period_end);
+    end.setUTCDate(end.getUTCDate() - 1);
+    return dateFmt.format(new Date(p.period_start)) + ' – ' + dateFmt.format(end) + ' · ' +
+      nf.format(p.creators) + ' creador' + (p.creators === 1 ? '' : 'es');
+  }
+
+  function renderFlow() {
+    var f = S.funnel || {};
+    var applicants = (f.accepted || 0) + (f.review || 0) + (f.rejected || 0) + (S.invalid_total || 0);
+    var stages = [
+      ['Captación', nf.format(applicants), 'Recoge las solicitudes nuevas del formulario cada 6 horas.', WF.poller],
+      ['Evaluación', nf.format(f.accepted || 0) + ' dentro', 'Aplica las reglas: acepta, rechaza o manda a revisión.', WF.rules],
+      ['Alta', nf.format((S.creators || []).length), 'Crea la ficha, genera el código y envía la bienvenida.', WF.pipeline],
+      ['Seguimiento', nf.format(S.posts_total || 0) + ' posts', 'Busca los posts con su código y guarda las visitas.', WF.pipeline],
+      ['Pago', S.payout ? euros(S.payout.total_cents) : '—', 'Calcula lo que se debe cada mes, con freno de seguridad.', WF.payout]
+    ];
+    var wrap = h('div', { style: 'display:contents' });
+    stages.forEach(function (s, i) {
+      wrap.appendChild(h('div', { class: 'stage' },
+        h('span', { class: 'n', text: i + 1 }),
+        h('h3', { text: s[0] }),
+        h('div', { class: 'v num', text: s[1] }),
+        h('p', { text: s[2] }),
+        wfLink(s[3], 'Ver en n8n →')));
+    });
+    mount('flow', wrap);
+  }
+
+  function renderDecisions() {
+    var f = S.funnel || {};
+    var parts = [
+      ['accepted', 'Aceptadas', f.accepted || 0, 'var(--ok)'],
+      ['review', 'A revisión', f.review || 0, 'var(--warn)'],
+      ['rejected', 'Rechazadas', f.rejected || 0, 'var(--idle)'],
+      ['invalid', 'Datos inválidos', S.invalid_total || 0, 'var(--bad)']
+    ];
+    var total = parts.reduce(function (a, p) { return a + p[2]; }, 0);
+
+    var bar = document.getElementById('bar');
+    bar.textContent = '';
+    bar.setAttribute('aria-label', parts.map(function (p) { return p[1] + ' ' + p[2]; }).join(', '));
+    parts.forEach(function (p) {
+      if (!p[2]) return;
+      bar.appendChild(h('span', {
+        style: 'width:' + (100 * p[2] / total).toFixed(3) + '%;background:' + p[3],
+        title: p[1] + ': ' + p[2]
+      }));
+    });
+
+    var legend = h('div', { style: 'display:contents' });
+    parts.forEach(function (p) {
+      legend.appendChild(h('div', {},
+        h('b', { class: 'num', text: nf.format(p[2]) }),
+        h('small', {}, h('span', { class: 'sw', style: 'background:' + p[3] }), p[1])));
+    });
+    mount('legend', legend);
+  }
+
+  var LABEL = { accepted: 'aceptada', review: 'a revisión', rejected: 'rechazada', invalid: 'inválida' };
+
+  function renderEval() {
+    mount('eval-action', actionForm('eval', 'Evaluar ahora', 'small'));
+    var ev = S.eval;
+    var root = document.getElementById('eval');
+    root.textContent = '';
+
+    if (!ev) {
+      root.appendChild(h('p', { class: 'empty', text: 'Todavía no se ha evaluado. Pulsa «Evaluar ahora».' }));
+      return;
+    }
+
+    var costly = S.eval_costly || {};
+    root.appendChild(h('div', { class: 'evalrow' },
+      h('div', { class: 'big num', text: pct(ev.accuracy) }),
+      h('div', { class: 'stats' },
+        h('span', {}, h('b', { class: 'num', text: ev.correct + ' de ' + ev.total }), ' aciertos'),
+        h('span', {}, 'macro F1 ', h('b', { class: 'num', text: dec(ev.macro_f1, 2) })),
+        h('span', { title: 'Aceptadas que debían rechazarse. Cuestan dinero.' },
+          h('b', { class: 'num', text: costly.false_accepts || 0 }), ' falsos aceptados'),
+        h('span', { title: 'Rechazadas que debían aceptarse. Cuestan un creador.' },
+          h('b', { class: 'num', text: costly.false_rejects || 0 }), ' falsos rechazados'))));
+
+    var dots = h('div', { class: 'dots', role: 'list' });
+    var detail = h('div', { class: 'detail', text: 'Verde acierta, rojo falla. Pulsa un cuadro.' });
+    var selected = null;
+
+    (S.eval_cases || []).forEach(function (c) {
+      var d = h('button', {
+        type: 'button', role: 'listitem',
+        class: 'dot' + (c.correct ? '' : ' wrong'),
+        'aria-label': c.external_id + (c.correct ? ', acierto' : ', fallo')
+      });
+      function show() {
+        if (selected) selected.classList.remove('sel');
+        selected = d; d.classList.add('sel');
+        detail.textContent = '';
+        detail.appendChild(h('b', { text: c.external_id }));
+        detail.appendChild(document.createTextNode(c.correct
+          ? ' · acierto: ' + (LABEL[c.expected] || c.expected)
+          : ' · esperaba ' + (LABEL[c.expected] || c.expected) + ', salió ' + (LABEL[c.actual] || c.actual)));
+        if (c.note) detail.appendChild(h('div', { text: c.note }));
+      }
+      d.addEventListener('click', show);
+      d.addEventListener('focus', show);
+      dots.appendChild(d);
+    });
+
+    root.appendChild(dots);
+    root.appendChild(detail);
+    root.appendChild(h('p', { class: 'sub', style: 'margin-top:8px' },
+      'Evaluado ' + ago(ev.started_at) + ' · reglas ' + ev.ruleset_version + ' · ',
+      wfLink(WF.evalwf, 'ver en n8n')));
+  }
+
+  var KIND = {
+    ingest: 'Captación', pipeline: 'Solicitante procesado', payout: 'Cálculo de pagos',
+    replay: 'Reintento', digest: 'Resumen diario'
+  };
+
+  function renderRuns() {
+    var runs = S.runs || [];
+    if (!runs.length) {
+      mount('runs', h('p', { class: 'empty', text: 'Todavía no ha corrido nada. Pulsa «Lanzar captación».' }));
+      return;
+    }
+    var list = h('div', { style: 'display:contents' });
+    runs.forEach(function (r) {
+      var ok = r.status === 'ok';
+      list.appendChild(h('div', { class: 'row' },
+        h('span', { class: 'sdot', style: 'background:' + (ok ? 'var(--ok)' : 'var(--bad)') }),
+        h('div', { class: 'grow' },
+          h('span', { text: KIND[r.kind] || r.kind }),
+          ' ',
+          h('span', { class: 'faint', text: '· ' + nf.format(r.item_count) + ' item' + (r.item_count === 1 ? '' : 's') })),
+        h('span', { class: 'pill ' + (ok ? 'p-ok' : 'p-bad'), text: ok ? 'bien' : r.status }),
+        h('span', { class: 'meta', text: ago(r.started_at) })));
+    });
+    mount('runs', list);
+  }
+
+  var REASON = {
+    invalid: ['datos inválidos', 'p-idle', 'Corregir en origen: reintentar daría el mismo error.'],
+    exhausted: ['reintentos agotados', 'p-warn', null],
+    crashed: ['caída inesperada', 'p-bad', null],
+    permanent: ['necesita una persona', 'p-warn', null]
+  };
+
+  function renderDeadLetters() {
+    var dls = S.dead_letters || [];
+    if (!dls.length) {
+      mount('dls', h('p', { class: 'empty' }, h('span', { class: 'pill p-ok', text: 'todo en orden' }), '  No hay fallos pendientes.'));
+      return;
+    }
+    var list = h('div', { style: 'display:contents' });
+    dls.forEach(function (d) {
+      var r = REASON[d.reason] || [d.reason, 'p-idle', null];
+      var right = h('div', { class: 'right' });
+      if (d.reason !== 'invalid' && REPLAYABLE.indexOf(d.kind) !== -1) {
+        right.appendChild(actionForm('replay', 'Reintentar', 'small', { id: String(d.id) }));
+      }
+      var href = safeHref(d.execution_url);
+      if (href) right.appendChild(h('a', { href: href, target: '_blank', rel: 'noopener', class: 'meta', text: 'ver ejecución' }));
+
+      list.appendChild(h('div', { class: 'row dl' },
+        h('div', { class: 'grow' },
+          h('div', {},
+            h('span', { class: 'pill ' + r[1], text: r[0] }), ' ',
+            h('span', { text: d.node }), ' ',
+            h('span', { class: 'faint', text: '· ' + d.workflow_name + ' · ' + ago(d.created_at) })),
+          h('div', { class: 'err', text: d.error }),
+          r[2] ? h('div', { class: 'faint', style: 'font-size:12px;margin-top:3px', text: r[2] }) : null),
+        right));
+    });
+    mount('dls', list);
+  }
+
+  function renderCreators() {
+    var cs = S.creators || [];
+    if (!cs.length) {
+      mount('creators', h('p', { class: 'empty', text: 'Aún no hay creadores dados de alta.' }));
+      return;
+    }
+    var tbody = h('tbody');
+    cs.forEach(function (c) {
+      tbody.appendChild(h('tr', {},
+        h('td', { text: '@' + c.handle }),
+        h('td', {}, h('span', { class: 'pill p-idle', text: c.platform })),
+        h('td', {}, h('code', { text: c.tracking_code })),
+        h('td', { class: 'r num', text: nf.format(c.posts) }),
+        h('td', { class: 'r num', text: nf.format(c.views) }),
+        h('td', { class: 'r num', text: c.owed_cents ? euros(c.owed_cents) : '—' })));
+    });
+    mount('creators', h('table', {},
+      h('thead', {}, h('tr', {},
+        h('th', { text: 'Creador' }), h('th', { text: 'Plataforma' }), h('th', { text: 'Código' }),
+        h('th', { class: 'r', text: 'Posts' }), h('th', { class: 'r', text: 'Visitas' }),
+        h('th', { class: 'r', text: 'A pagar' }))),
+      tbody));
+  }
+
+  function renderFoot() {
+    var nav = h('nav', {});
+    [['Captación', WF.poller], ['Pipeline', WF.pipeline], ['Reglas', WF.rules], ['Pagos', WF.payout],
+     ['Errores', WF.errors], ['Reintentos', WF.replay], ['Evaluación', WF.evalwf], ['Resumen', WF.digest]]
+      .forEach(function (x) { nav.appendChild(wfLink(x[1], x[0])); });
+    mount('foot', h('div', { style: 'display:contents' },
+      h('span', { text: 'Generado a las ' + timeFmt.format(new Date(S.generated_at || Date.now())) }),
+      nav));
+  }
+
+  // ---- live ----------------------------------------------------------------
+
+  var timer = null, remaining = REFRESH_SECONDS;
+
+  function renderLive() {
+    var live = document.getElementById('live');
+    var text = document.getElementById('live-text');
+    var btn = document.getElementById('pause');
+    live.classList.toggle('off', paused || isSample);
+    if (isSample) { text.textContent = 'Vista previa'; btn.hidden = true; return; }
+    text.textContent = paused ? 'En pausa' : 'En vivo · ' + remaining + ' s';
+    btn.textContent = paused ? 'Reanudar' : 'Pausar';
+  }
+
+  function stopTimer() { if (timer) { clearInterval(timer); timer = null; } }
+
+  function startTimer() {
+    stopTimer();
+    if (paused || isSample) { renderLive(); return; }
+    remaining = REFRESH_SECONDS;
+    renderLive();
+    timer = setInterval(function () {
+      remaining -= 1;
+      if (remaining <= 0) {
+        stopTimer();
+        location.replace(location.pathname + location.search + hashFor());
+        location.reload();
+        return;
+      }
+      renderLive();
+    }, 1000);
+  }
+
+  document.getElementById('pause').addEventListener('click', function () {
+    paused = !paused;
+    location.replace(location.pathname + location.search + hashFor());
+    startTimer();
+  });
+
+  var FLASH = {
+    poll: ['Captación lanzada. Los números se irán actualizando mientras corre.', ''],
+    eval: ['Evaluación lanzada. El resultado aparece en unos segundos.', ''],
+    replay: ['Reintento lanzado. Si vuelve a fallar, el caso regresa a la lista.', ''],
+    denied: ['Acción rechazada: el token no coincide. Recarga la página y vuelve a intentarlo.', 'bad']
+  };
+
+  function renderFlash() {
+    var f = FLASH[flashKey];
+    if (!f) return;
+    var el = document.getElementById('flash');
+    el.textContent = f[0];
+    if (f[1]) el.classList.add(f[1]);
+    el.hidden = false;
+  }
+
+  // ---- sample data, only for opening this file directly ---------------------
+
+  function sample() {
+    var cases = [];
+    var notes = {
+      33: ['review', 'rejected', '4.2k seguidores, pero una audiencia de barbacoa muy fiel'],
+      34: ['review', 'rejected', '3.1k y ya publica sobre la marca sin cobrar'],
+      35: ['rejected', 'accepted', '95k seguidores, pero la interacción dice que son comprados'],
+      36: ['rejected', 'accepted', 'grande, pero republica contenido ajeno'],
+      37: ['review', 'accepted', 'justo por encima del umbral y con la cuenta recién creada'],
+      38: ['accepted', 'review', 'por debajo del umbral, pero repite colaboración del año pasado'],
+      39: ['accepted', 'review', 'por debajo del umbral, pero es justo la audiencia buscada']
+    };
+    for (var i = 1; i <= 46; i++) {
+      var id = 'g-' + String(i).padStart(3, '0');
+      var n = notes[i];
+      cases.push(n
+        ? { external_id: id, expected: n[0], actual: n[1], correct: false, note: n[2] }
+        : { external_id: id, expected: 'accepted', actual: 'accepted', correct: true, note: null });
+    }
+    var now = Date.now();
+    function t(minAgo) { return new Date(now - minAgo * 60000).toISOString(); }
+    return {
+      generated_at: new Date(now).toISOString(),
+      editor_base_url: 'https://n8n.senaproject.online',
+      action_token: '',
+      funnel: { accepted: 3, review: 3, rejected: 2 },
+      invalid_total: 2,
+      views_total: 365489, posts_total: 7,
+      creators: [
+        { handle: 'caradraws', platform: 'instagram', tracking_code: 'CP-9E0945B087C1DAD7', posts: 2, views: 168219, owed_cents: 17137 },
+        { handle: 'benbuilds', platform: 'tiktok', tracking_code: 'CP-9F09474386C1D944', posts: 3, views: 167282, owed_cents: 13837 },
+        { handle: 'anacooks', platform: 'youtube', tracking_code: 'CP-A00948D689C1DDFD', posts: 2, views: 30988, owed_cents: 6344 }
+      ],
+      runs: [
+        { kind: 'pipeline', status: 'ok', item_count: 2, duration_ms: 812, started_at: t(1) },
+        { kind: 'pipeline', status: 'ok', item_count: 3, duration_ms: 944, started_at: t(1) },
+        { kind: 'ingest', status: 'ok', item_count: 10, duration_ms: 6120, started_at: t(2) },
+        { kind: 'payout', status: 'ok', item_count: 3, duration_ms: 210, started_at: t(38) }
+      ],
+      dead_letters_open: 3,
+      dead_letters: [
+        { id: 12, workflow_name: '01a application poller', node: 'Into the pipeline', kind: 'ingest', reason: 'exhausted', error: 'platform API temporarily unavailable', created_at: t(3), execution_url: 'https://n8n.senaproject.online/workflow/creatorPoller01a/executions/140' },
+        { id: 11, workflow_name: '01 creator pipeline', node: 'Valid?', kind: 'screen', reason: 'invalid', error: "unsupported platform 'twitch', expected one of youtube, tiktok, instagram", created_at: t(3), execution_url: null },
+        { id: 10, workflow_name: '01 creator pipeline', node: 'Valid?', kind: 'screen', reason: 'invalid', error: 'email is not valid', created_at: t(3), execution_url: null }
+      ],
+      eval: { id: 2, ruleset_version: 'v3-two-thresholds', total: 46, correct: 39, accuracy: 0.8478, macro_f1: 0.8623, started_at: t(62) },
+      eval_costly: { false_accepts: 2, false_rejects: 0 },
+      eval_cases: cases,
+      payout: { period_start: '2026-08-01', period_end: '2026-09-01', creators: 3, total_cents: 37318 }
+    };
+  }
+
+  // ---- go --------------------------------------------------------------------
+
+  document.getElementById('sample').hidden = !isSample;
+  renderHeader();
+  renderKpis();
+  renderFlow();
+  renderDecisions();
+  renderEval();
+  renderRuns();
+  renderDeadLetters();
+  renderCreators();
+  renderFoot();
+  renderFlash();
+
+  var y = Number(hp.get('y'));
+  if (y > 0) window.scrollTo(0, y);
+
+  startTimer();
+})();
+</script>
+</body>
+</html>

@@ -322,7 +322,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO dead_letters\n  (workflow_id, workflow_name, execution_id, execution_url, node, kind,\n   payload, attempts, error, reason)\nVALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10);",
+        "query": "INSERT INTO dead_letters\n  (workflow_id, workflow_name, execution_id, execution_url, node, kind,\n   payload, attempts, error, reason)\nVALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)\n-- The arbiter only matches rows the partial index covers, so this is a\n-- no-op for the same invalid applicant on the next poll and an ordinary\n-- insert for every other reason. See idx_dead_letters_one_open_invalid.\nON CONFLICT (kind, (COALESCE(payload->>'external_id', md5(payload::text))))\n  WHERE reason = 'invalid' AND replayed_at IS NULL\n  DO NOTHING;",
         "options": {
           "queryReplacement": "={{ [$workflow.id, $workflow.name, $execution.id, `${$('Config').first().json.config.editor_base_url}/workflow/${$workflow.id}/executions/${$execution.id}`, $prevNode.name, ({ 'Valid?': 'screen', 'Send welcome email': 'onboard', 'Fetch posts': 'track' })[$prevNode.name] || 'unknown', JSON.stringify($json), $json.valid === false ? 1 : 4, ($json.reason ?? $json.error?.message ?? $json.error?.description ?? (typeof $json.error === 'string' ? $json.error : JSON.stringify($json.error ?? 'unclassified failure'))).slice(0, 500), $json.valid === false ? 'invalid' : 'exhausted'] }}"
         }

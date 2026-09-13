@@ -286,6 +286,20 @@
         -330,
         300
       ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "a5000000-0000-4000-8000-00000000000f",
+      "name": "Run from the dashboard",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1320,
+        500
+      ],
+      "notes": "The 'Evaluar reglas' button in 07. Scores the same way the Monday run does, and the result lands in eval_runs like any other."
     }
   ],
   "connections": {
@@ -422,6 +436,17 @@
         [
           {
             "node": "Score with the real rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run from the dashboard": {
+      "main": [
+        [
+          {
+            "node": "Config",
             "type": "main",
             "index": 0
           }

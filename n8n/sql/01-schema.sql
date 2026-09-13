@@ -52,6 +52,26 @@ CREATE TABLE IF NOT EXISTS dead_letters (
 CREATE INDEX IF NOT EXISTS idx_dead_letters_open
     ON dead_letters (created_at) WHERE replayed_at IS NULL;
 
+-- One open 'invalid' dead letter per applicant, however many polls see it.
+--
+-- A malformed application stays malformed in the source feed until somebody
+-- fixes it there, and the poller reads that feed every six hours. Without
+-- this index every poll dead-lettered the same record again: the first live
+-- week turned 2 broken applicants into 32 rows and a "38 pending failures"
+-- count that was mostly the same two problems. A queue whose length does not
+-- mean anything is a queue nobody works.
+--
+-- Partial on purpose. Only 'invalid' is deduplicated, because only 'invalid'
+-- is guaranteed to fail identically every time. An 'exhausted' row is a
+-- distinct event -- the provider was down at 02:00 and again at 08:00 -- and
+-- collapsing those would hide how often it happens.
+--
+-- COALESCE because a record rejected for having no external_id at all would
+-- otherwise have a NULL key, and NULLs never collide in a unique index.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dead_letters_one_open_invalid
+    ON dead_letters (kind, (COALESCE(payload->>'external_id', md5(payload::text))))
+    WHERE reason = 'invalid' AND replayed_at IS NULL;
+
 -- ---------------------------------------------------------------------------
 -- Observability
 -- ---------------------------------------------------------------------------

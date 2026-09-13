@@ -66,7 +66,15 @@ INSERT INTO config (key, value, note) VALUES
  'Used to build links into alerts. No trailing slash, or every link reads .../undefined.'),
 
 ('min_accuracy', '0.8',
- 'Below this, the morning digest marks the screening rules as needing attention.')
+ 'Below this, the morning digest marks the screening rules as needing attention.'),
+
+-- Generated here, on first insert, and never overwritten by a re-run: the
+-- ON CONFLICT below leaves `value` alone. Two uuids is 244 random bits from
+-- the server's own CSPRNG (gen_random_uuid is core since Postgres 13), which
+-- is plenty for a token that only has to be unguessable by another website.
+('dashboard_action_token',
+ replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', ''),
+ 'Anti-CSRF token rendered into the dashboard''s forms. Basic auth alone lets any site the operator visits post to the action webhook.')
 
 ON CONFLICT (key) DO UPDATE SET
     note = EXCLUDED.note,

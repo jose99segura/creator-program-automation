@@ -231,3 +231,120 @@ def test_the_eval_and_the_pipeline_call_the_same_ruleset() -> None:
         raw = (WORKFLOW_DIR / f"{stem}.json").read_text(encoding="utf-8")
         assert "00_SCREENING_RULES_WORKFLOW_ID" in raw or "screening" in raw, (
             f"{stem} does not reference the screening rules workflow")
+
+
+# ---------------------------------------------------------------------------
+# The dashboard
+# ---------------------------------------------------------------------------
+
+DASHBOARD_DIR = WORKFLOW_DIR.parent / "dashboard"
+
+
+def _load_build():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("dashboard_build", DASHBOARD_DIR / "build.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_dashboard_workflow_embeds_the_current_page() -> None:
+    """Editing page.html without rebuilding must fail here, not in production.
+
+    The workflow JSON is what gets deployed. If it drifts from the page, the
+    file everyone reads and reviews is not the page anyone sees.
+    """
+    build = _load_build()
+    page = (DASHBOARD_DIR / "page.html").read_text(encoding="utf-8")
+    wf = load(WORKFLOW_DIR / "07-dashboard.json")
+    node = next(n for n in wf["nodes"] if n["name"] == build.NODE)
+    assert node["parameters"]["jsCode"] == build.render_js(page), (
+        "07-dashboard.json is stale: run python n8n/dashboard/build.py")
+
+
+def test_the_dashboard_never_writes_html_from_data() -> None:
+    """Every string on that page came from an applicant or an error message.
+
+    innerHTML with any of it is a stored XSS on a page that holds a live
+    action token. textContent only.
+    """
+    page = (DASHBOARD_DIR / "page.html").read_text(encoding="utf-8")
+    script = page[page.index("<script>"):]
+    for forbidden in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"):
+        assert forbidden not in strip_comments(script), (
+            f"the dashboard uses {forbidden}, which renders untrusted data as markup")
+
+
+def test_the_dashboard_escapes_state_for_a_script_element() -> None:
+    """The one line standing between an applicant's handle and script execution."""
+    build = _load_build()
+    js = build.render_js("<p>/*__STATE__*/null</p>")
+    assert r"replace(/</g, '\\u003c')" in js
+    assert r"/\u2028/g" in js and r"/\u2029/g" in js
+    # A literal U+2028, U+2029 or an ordinary space inside a regex would each
+    # silently corrupt the page data. Only the escaped forms are acceptable.
+    assert "/ /g" not in js
+    assert "\u2028" not in js and "\u2029" not in js
+    assert "() => json" in js, "replacement must be a function, not a string"
+
+
+def test_dashboard_actions_are_behind_auth_and_a_token() -> None:
+    """Both webhooks authenticate, and the action one also checks the CSRF token."""
+    wf = load(WORKFLOW_DIR / "07-dashboard.json")
+    hooks = [n for n in wf["nodes"] if n["type"] == "n8n-nodes-base.webhook"]
+    assert len(hooks) == 2
+    for hook in hooks:
+        assert hook["parameters"].get("authentication") == "basicAuth", hook["name"]
+        assert "httpBasicAuth" in hook.get("credentials", {}), hook["name"]
+    raw = (WORKFLOW_DIR / "07-dashboard.json").read_text(encoding="utf-8")
+    assert "dashboard_action_token" in raw
+
+
+@pytest.mark.parametrize("stem,target", [
+    ("01a-poller", "Config"),
+    ("05-eval-screening", "Config"),
+    ("04-dlq-replay", "Claim it"),
+])
+def test_dashboard_can_start_the_workflows_it_offers(stem: str, target: str) -> None:
+    """A button that calls a workflow with no Execute Workflow trigger does nothing.
+
+    n8n does not complain at import. The call fails at the moment someone
+    presses it, which is a demo.
+    """
+    wf = load(WORKFLOW_DIR / f"{stem}.json")
+    triggers = [n for n in wf["nodes"] if n["type"] == "n8n-nodes-base.executeWorkflowTrigger"]
+    assert triggers, f"{stem} cannot be called from the dashboard"
+    name = triggers[0]["name"]
+    assert wf["connections"][name]["main"][0][0]["node"] == target
+
+
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
+def test_every_webhook_has_a_stable_id(path: Path) -> None:
+    """Without webhookId, n8n registers the path under a generated prefix.
+
+    The URL becomes <workflow id>/<node name>/<path>. The node imports, the
+    workflow activates, and every caller using the documented path gets a
+    404. It happened to 09, and then went unnoticed on 04 until the dashboard
+    deploy listed the registered paths -- which is what a test is for.
+    """
+    wf = load(path)
+    for node in wf["nodes"]:
+        if node["type"] == "n8n-nodes-base.webhook":
+            assert node.get("webhookId"), f"{path.name}: {node['name']!r} has no webhookId"
+
+
+def test_an_invalid_applicant_is_dead_lettered_once() -> None:
+    """The poller re-reads the feed; a broken record must not re-enter the queue.
+
+    Found by the dashboard, not by a test: 2 malformed applicants had become
+    32 dead letters in a week. The index and the ON CONFLICT only work as a
+    pair -- an index without the clause makes every re-poll fail the insert,
+    and the clause without the index is a syntax error.
+    """
+    schema = (WORKFLOW_DIR.parent / "sql" / "01-schema.sql").read_text(encoding="utf-8")
+    assert "idx_dead_letters_one_open_invalid" in schema
+    wf = load(WORKFLOW_DIR / "01-pipeline.json")
+    query = next(n for n in wf["nodes"] if n["name"] == "Dead letter")["parameters"]["query"]
+    assert "ON CONFLICT" in query and "DO NOTHING" in query
+    assert "reason = 'invalid' AND replayed_at IS NULL" in query

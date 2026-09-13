@@ -173,6 +173,20 @@
       ],
       "executeOnce": true,
       "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "aa000000-0000-4000-8000-000000000009",
+      "name": "Run from the dashboard",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -660,
+        480
+      ],
+      "notes": "The 'Lanzar captación' button in 07. The same path as the six-hourly poll from here on -- the dashboard does not get its own version of polling, it gets a second way to start the one that exists."
     }
   ],
   "connections": {
@@ -250,6 +264,17 @@
         [
           {
             "node": "Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run from the dashboard": {
+      "main": [
+        [
+          {
+            "node": "Config",
             "type": "main",
             "index": 0
           }
