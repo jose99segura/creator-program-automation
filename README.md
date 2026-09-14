@@ -309,7 +309,7 @@ n8n/                       the same pipeline as three n8n workflows
 python -m pytest -q
 ```
 
-52 tests, weighted towards the two places where a bug is expensive: the payout
+78 tests, weighted towards the two places where a bug is expensive: the payout
 arithmetic and the failure path. The failure path is the half of any
 automation that only runs when things break, and therefore the half most
 likely to be broken without anyone noticing.
