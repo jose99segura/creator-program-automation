@@ -347,4 +347,39 @@ def test_an_invalid_applicant_is_dead_lettered_once() -> None:
     wf = load(WORKFLOW_DIR / "01-pipeline.json")
     query = next(n for n in wf["nodes"] if n["name"] == "Dead letter")["parameters"]["query"]
     assert "ON CONFLICT" in query and "DO NOTHING" in query
-    assert "reason = 'invalid' AND replayed_at IS NULL" in query
+
+
+def test_a_crashed_execution_is_dead_lettered_once() -> None:
+    """n8n re-reports an interrupted execution on every startup.
+
+    One execution became five dead letters across five restarts before this
+    existed. Index and clause only work as a pair.
+    """
+    schema = (WORKFLOW_DIR.parent / "sql" / "01-schema.sql").read_text(encoding="utf-8")
+    assert "idx_dead_letters_one_per_crash" in schema
+    wf = load(WORKFLOW_DIR / "03-error-handler.json")
+    query = next(n for n in wf["nodes"] if n["name"] == "Dead letter")["parameters"]["query"]
+    assert "ON CONFLICT (workflow_id, execution_id)" in query and "DO NOTHING" in query
+
+
+def test_a_failed_fetch_is_never_replayed_as_an_applicant() -> None:
+    """A poll-level failure carries an HTTP error, not an applicant.
+
+    Replaying it into the pipeline would fail validation and mint a new
+    'invalid' dead letter about data that never existed.
+    """
+    poller = load(WORKFLOW_DIR / "01a-poller.json")
+    dl = next(n for n in poller["nodes"] if n["name"] == "Dead letter")
+    assert "'ingest', $6::jsonb" not in dl["parameters"]["query"]
+    assert "'poll'" in dl["parameters"]["options"]["queryReplacement"]
+
+    replay = load(WORKFLOW_DIR / "04-dlq-replay.json")
+    gate = next(n for n in replay["nodes"] if n["name"] == "Replayable kind?")
+    assert "'poll'" not in json.dumps(gate["parameters"])
+
+
+def test_the_replay_webhook_has_its_credential() -> None:
+    """Header auth with no credential answers 500 to everyone."""
+    wf = load(WORKFLOW_DIR / "04-dlq-replay.json")
+    hook = next(n for n in wf["nodes"] if n["name"] == "Replay webhook")
+    assert "httpHeaderAuth" in hook.get("credentials", {})

@@ -131,9 +131,9 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO dead_letters\n  (workflow_id, workflow_name, execution_id, execution_url, node, kind,\n   payload, attempts, error, reason)\nVALUES ($1, $2, $3, $4, $5, 'ingest', $6::jsonb, 4, $7, 'exhausted');",
+        "query": "-- kind separates the two things that can fail here, because they are\n-- recovered in different ways. 'poll': the feed itself could not be read,\n-- the payload is an HTTP error with no applicant in it, and the recovery\n-- is to run the poll again. 'ingest': one applicant failed to be dispatched\n-- into the pipeline, the payload is that applicant, and 04 can replay it.\n--\n-- Both used to be 'ingest', which would have sent an HTTP error into the\n-- pipeline as if it were an applicant, failed validation, and turned one\n-- outage into a fresh 'invalid' dead letter about data that never existed.\nINSERT INTO dead_letters\n  (workflow_id, workflow_name, execution_id, execution_url, node, kind,\n   payload, attempts, error, reason)\nVALUES ($1, $2, $3, $4, $5, $8, $6::jsonb, 4, $7, 'exhausted');",
         "options": {
-          "queryReplacement": "={{ [$workflow.id, $workflow.name, $execution.id, `${$('Config').first().json.config.editor_base_url}/workflow/${$workflow.id}/executions/${$execution.id}`, $prevNode.name, JSON.stringify($json), ($json.error?.message ?? $json.error?.description ?? (typeof $json.error === 'string' ? $json.error : JSON.stringify($json.error ?? 'unclassified failure'))).slice(0, 500)] }}"
+          "queryReplacement": "={{ [$workflow.id, $workflow.name, $execution.id, `${$('Config').first().json.config.editor_base_url}/workflow/${$workflow.id}/executions/${$execution.id}`, $prevNode.name, JSON.stringify($json), ($json.error?.message ?? $json.error?.description ?? (typeof $json.error === 'string' ? $json.error : JSON.stringify($json.error ?? 'unclassified failure'))).slice(0, 500), ($prevNode.name === 'Fetch applications' ? 'poll' : 'ingest')] }}"
         }
       },
       "id": "aa000000-0000-4000-8000-000000000007",
@@ -144,7 +144,7 @@
         220,
         460
       ],
-      "notes": "A failed fetch is one dead letter for the whole poll, not four hundred: there is nothing to replay per applicant, because no applicant was read. Replaying this one re-runs the fetch.",
+      "notes": "A failed fetch is one dead letter for the whole poll, not four hundred: there is nothing to replay per applicant, because no applicant was read. Replaying this one re-runs the fetch, via the dashboard's 'Lanzar captacion' button rather than through 04, which refuses kind 'poll' as an applicant. A failure to dispatch one applicant into the pipeline is kind 'ingest' instead, and that one 04 can replay.",
       "credentials": {
         "postgres": {
           "id": "creatorPgCred001",

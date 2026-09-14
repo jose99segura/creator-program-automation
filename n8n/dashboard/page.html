@@ -568,6 +568,12 @@ code{font-family:var(--mono);font-size:12.5px}
       var href = safeHref(d.execution_url);
       if (href) right.appendChild(h('a', { href: href, target: '_blank', rel: 'noopener', class: 'meta', text: 'ver ejecución' }));
 
+      // A poll-level failure has no applicant to replay. Its retry is the
+      // poll button, and saying so beats a missing button nobody can explain.
+      var hint = d.kind === 'poll'
+        ? 'Falló la lectura del feed entero: se reintenta con «Lanzar captación».'
+        : r[2];
+
       list.appendChild(h('div', { class: 'row dl' },
         h('div', { class: 'grow' },
           h('div', {},
@@ -575,7 +581,7 @@ code{font-family:var(--mono);font-size:12.5px}
             h('span', { text: d.node }), ' ',
             h('span', { class: 'faint', text: '· ' + d.workflow_name + ' · ' + ago(d.created_at) })),
           h('div', { class: 'err', text: d.error }),
-          r[2] ? h('div', { class: 'faint', style: 'font-size:12px;margin-top:3px', text: r[2] }) : null),
+          hint ? h('div', { class: 'faint', style: 'font-size:12px;margin-top:3px', text: hint }) : null),
         right));
     });
     mount('dls', list);

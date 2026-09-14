@@ -72,6 +72,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_dead_letters_one_open_invalid
     ON dead_letters (kind, (COALESCE(payload->>'external_id', md5(payload::text))))
     WHERE reason = 'invalid' AND replayed_at IS NULL;
 
+-- One dead letter per crashed execution, however many times n8n reports it.
+--
+-- n8n marks an execution that was running when the process stopped as
+-- crashed and fires the error workflow for it -- and then fires it again on
+-- every later startup. One interrupted execution produced five identical
+-- rows across five restarts, each saying "possible out-of-memory issue". No
+-- container had actually been OOM-killed: the kernel log was clean for n8n,
+-- and n8n uses that message for any execution cut off mid-run. The key is
+-- the execution that failed, not the moment the notice arrived.
+--
+-- execution_id 'none' is excluded. That is what 03 records when a trigger
+-- fails before any execution exists, and a trigger failing repeatedly is
+-- repeated information worth keeping, not a duplicate.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dead_letters_one_per_crash
+    ON dead_letters (workflow_id, execution_id)
+    WHERE reason = 'crashed' AND execution_id <> 'none';
+
 -- ---------------------------------------------------------------------------
 -- Observability
 -- ---------------------------------------------------------------------------

@@ -30,7 +30,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO dead_letters\n  (workflow_id, workflow_name, execution_id, execution_url, node, kind,\n   payload, attempts, error, reason)\nVALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 1, $8, $9)\nRETURNING id;",
+        "query": "INSERT INTO dead_letters\n  (workflow_id, workflow_name, execution_id, execution_url, node, kind,\n   payload, attempts, error, reason)\nVALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 1, $8, $9)\n-- n8n re-reports an interrupted execution on every startup. The second\n-- report inserts nothing, RETURNING yields no row, and the chain stops\n-- here -- so a restart does not also send a second alert about a crash\n-- that was already recorded and already announced.\nON CONFLICT (workflow_id, execution_id)\n  WHERE reason = 'crashed' AND execution_id <> 'none'\n  DO NOTHING\nRETURNING id;",
         "options": {
           "queryReplacement": "={{ [$json.workflow_id, $json.workflow_name, $json.execution_id, $json.execution_url, $json.node, $json.kind, JSON.stringify($json.payload), $json.error, $json.reason] }}"
         }
