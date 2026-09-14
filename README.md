@@ -295,12 +295,12 @@ creator_program/
   steps/                   ingest, screen, onboard, track, payout
   providers/               a fake platform API and mailer, which fail on purpose
 tests/                     payouts, the retry path, validation, the n8n graphs
-n8n/                       the same pipeline as eight n8n workflows, deployed
-  README.md                what each one proves, how to set them up, results
-  deploy.sh                schema, config, golden set, import, verification
-  sql/                     schema, the labelled dataset, the config table
-  workflows/               00 rules, 01 pipeline, 01a poller, 02 payout,
-                           03 errors, 04 replay, 05 eval, 06 digest
+n8n/                       the same pipeline as three n8n workflows
+  README.md                what each workflow does, settings, deploy
+  deploy.sh                schema, config, import, activation
+  sql/                     schema and the config table
+  dashboard/               the live page, and the script that embeds it
+  workflows/               01 pipeline, 02 payout, 03 errors, 04 dashboard
 ```
 
 ## Tests
@@ -309,14 +309,14 @@ n8n/                       the same pipeline as eight n8n workflows, deployed
 python -m pytest -q
 ```
 
-77 tests, weighted towards the two places where a bug is expensive: the payout
+52 tests, weighted towards the two places where a bug is expensive: the payout
 arithmetic and the failure path. The failure path is the half of any
 automation that only runs when things break, and therefore the half most
 likely to be broken without anyone noticing.
 
 ## The n8n version
 
-[`n8n/`](n8n/README.md) is the same pipeline built as seven n8n workflows, for
+[`n8n/`](n8n/README.md) is the same pipeline built as three n8n workflows, for
 the case where the team already runs n8n and a Python service would be a new
 thing to operate. The mapping of the machinery is direct:
 
@@ -327,44 +327,12 @@ thing to operate. The mapping of the machinery is direct:
 | `queue.py` | n8n itself: executions, retries and wait states |
 | `dead_letters` | still a table -- n8n's retry re-runs the whole trigger, not one item |
 | `runner.py` catching everything | an Error Trigger workflow set on every workflow |
-| one alert per run | `executeOnce`, plus a fifteen minute suppression window |
+| one alert per run | `executeOnce` on the alert node |
 | `INSERT OR IGNORE` | `ON CONFLICT DO NOTHING` in the same statements |
 
-Two things it has that the Python side does not, because n8n forced the
-question:
-
-**The business rules are their own workflow.** There is no import statement in
-n8n, so shared logic is either a workflow boundary or it is copy-paste. `00
-screening rules` is called by the pipeline and by the eval, which is the only
-reason the eval measures the code production runs rather than a copy of it.
-
-**The decision has a measured accuracy.** `05 eval screening` scores the rules
-against 46 hand-labelled applications and writes accuracy, macro F1, per-class
-precision and recall, and the confusion matrix to a table on every run. Seven
-of those labels disagree with the current thresholds on purpose: a golden set
-generated from the rules scores 1.0 for ever and measures nothing.
-
-All eight are **deployed and running** on a self-hosted n8n 2.10.2, against a
-dedicated database in a shared Postgres. The eval has executed through the
-real runtime:
-
-```
-ruleset v3-two-thresholds    46 cases    39 correct
-accuracy 0.8478             macro F1 0.8623
-false accepts 2             false rejects 0
-```
-
-The seven failures are exactly the seven rows labelled `DISAGREES`. Every
-threshold boundary, every malformed record and every normalisation passed. The
-two false accepts and zero false rejects are the finding worth having: the
-rules fail in the expensive direction, and no threshold fixes it, because
-follower count is not the signal that separates those rows. That conclusion is
-unreachable from an accuracy number alone.
-
-The HTTP paths are still pointed at placeholder endpoints and have not fired.
-`n8n/README.md` says which parts have run and which have not, and what the
-first real deployment found -- including two failures that are invisible to
-structural validation because they raise nothing at all.
+It runs on a self-hosted n8n against a dedicated database in a shared
+Postgres. `n8n/README.md` covers each workflow, the settings, and what the
+first real runs found.
 
 ## Configuration
 

@@ -1,456 +1,152 @@
 # The n8n version
 
-Seven workflows, one Postgres schema, and a labelled dataset. The same
-pipeline as the Python implementation one directory up, built the way it would
-actually be built by a team that already runs n8n and does not want a Python
-service to operate as well.
+The same pipeline as the Python code one directory up, as **three n8n
+workflows**, one Postgres database, and a page to watch it.
 
-It is not a translation exercise. The interesting part is what changes when
-the runtime is a workflow engine instead of a process you wrote: n8n takes
-over the queue and gives you retries for free, and takes away the two things
-the Python version leans on hardest — a single place to put shared logic, and
-the ability to test any of it.
-
-Most of this directory is the answer to that second problem.
-
----
-
-## What each workflow is for
-
-| | Workflow | Demonstrates |
+| Workflow | When it runs | What it does |
 |---|---|---|
-| `00` | screening rules | one copy of the business logic, callable, testable |
-| `01` | creator pipeline | idempotency, error outputs, two entry points |
-| `02` | payout monthly | integer money, a circuit breaker on the total |
-| `03` | error handler | the net under the net, and alert deduplication |
-| `04` | dead letter replay | recovery as an endpoint, with an atomic claim |
-| `05` | eval screening | the accuracy number, and what makes it honest |
-| `06` | health digest | knowing it works without watching it, and a dead man's switch |
+| `01 pipeline` | every 6 hours, by hand, or from the dashboard | reads new applications, screens them, onboards the accepted ones, fetches their posts |
+| `02 payout` | 1st of the month, 04:00 | works out what each creator is owed for last month |
+| `03 errors` | whenever another workflow crashes | records the failure and sends an alert |
+| `04 dashboard` | when you open it | the page below; it does no work of its own |
+
+## The dashboard
+
+`https://n8n.senaproject.online/webhook/creator-program/dashboard`, behind
+basic auth (credential `creator dashboard login`). It is in Spanish and reads
+live data:
+
+- **Cómo funciona**: the three workflows step by step, each step with a real
+  example from the database.
+- **Las reglas**: the follower thresholds as a scale, with the latest real
+  applicants in each outcome, plus the invalid ones and why.
+- **Un creador, de principio a fin**: the creator with the most views, from
+  application to payout, with the payout arithmetic redone on the page.
+- **Pagos por mes**, **Fallos pendientes** (each with what to do, and a
+  *Marcar resuelto* button) and **Creadores**.
+
+It has two buttons: *Lanzar el pipeline ahora* and *Marcar resuelto*. Both
+check a token that only the rendered page has, so another site cannot trigger
+them using your saved login.
+
+To change it, edit `dashboard/page.html` (open it straight in a browser to
+preview with made-up data), then run `python n8n/dashboard/build.py` to embed
+it into `04-dashboard.json`. CI fails if you forget to rebuild.
 
 ```
-                  ┌──────────────────────┐
-    schedule ────►│ 01 creator pipeline  │◄──── 04 replay (one item)
-                  └──────────┬───────────┘
-                             │ calls
-                  ┌──────────▼───────────┐        ┌────────────────────┐
-                  │ 00 screening rules   │◄───────┤ 05 eval screening  │
-                  └──────────────────────┘ calls  └────────────────────┘
-                                                    scores the same code
-
-    any workflow crashing ──► 03 error handler ──► dead_letters ──► 04 replay
-    everything that ran   ──► runs table       ──► 06 digest, every morning
+  every 6h ─► 01 pipeline ─► submissions, creators, posts ─► 02 payout (monthly) ─► payouts
+                   │                                              │
+                   └───────── failures ─► dead_letters ◄──────────┘
+                                               ▲
+                     anything that crashes ─► 03 errors ─► alert
 ```
 
 ---
 
-## Six decisions worth defending
+## 01 pipeline, step by step
 
-### The ruleset is a sub-workflow, and that is what makes the eval mean anything
+```
+Config ─► Fetch applications ─► Screen applicants ─► Valid? ─► Store applicant ─► Accepted?
+                                                       │                             │
+                                                       no                           yes
+                                                       ▼                             ▼
+                                                  Dead letter    Create creator ─► Send welcome email
+                                                                                     ─► Fetch posts ─► Upsert posts
+```
 
-`00` exists so that `01` and `05` call the *same* node. The obvious
-alternative — a Code node in the pipeline and a copy of it in the eval — is
-correct on the day you write it and quietly wrong from the first time somebody
-edits one and not the other. After that the eval reports a number about code
-nothing runs, which is worse than reporting no number at all, because it is
-believed.
+- **Screen applicants** holds all the rules: the platform must be YouTube,
+  TikTok or Instagram, and follower count decides the outcome — under
+  `min_followers` is rejected, under `review_followers` goes to review, anything
+  higher is accepted.
+- **Review and rejected** applicants are stored and stop there. A person moves
+  them to `accepted` by hand if they want to, and the next run picks that up.
+- **The HTTP calls** retry 4 times, 5 s apart. If they still fail, the item goes
+  to `dead_letters` and **one** alert is sent per run.
+- **Running it twice is safe.** Applicants, creators and posts all have unique
+  keys, and the tracking code is derived from the application id, so it comes
+  out the same every time.
 
-This is n8n's real weakness and it is worth being able to name in an
-interview: there is no import statement, so shared logic has to be a workflow
-boundary or it becomes copy-paste. Everything downstream of that choice is
-downstream of that choice.
+## 02 payout
 
-### The golden set disagrees with the rules on purpose
+It recomputes `views × rate` from the posts table in integer cents, so running
+it again for the same month updates the rows instead of paying twice. Two
+things put the month on hold (a row in `dead_letters` plus an alert) instead of
+reporting it:
 
-`sql/02-golden-set.sql` holds 46 applications, each labelled with the decision
-a human actually wants. Seven of them are marked `DISAGREES`: a 4,200-follower
-BBQ channel with an unusually engaged audience, a 95,000-follower account whose
-engagement says the followers were bought.
+- the total is above `payout_ceiling_cents`
+- the total is more than `payout_sanity_multiplier` × last month
 
-If the labels had been generated by running the rules, the eval would score
-1.0 for ever and be a workflow that prints a number. The disagreements are the
-measurement. The score is not supposed to reach 1.0 — a rule set that agrees
-with a human on every edge case does not exist, and chasing one produces
-thresholds overfitted to 46 rows. It is supposed to move in the right
-direction when you change a threshold, and to tell you what you broke when it
-does not.
+Nothing is ever transferred by this workflow.
 
-### Four numbers, not one
+## 03 errors
 
-Accuracy alone lies twice on this dataset.
-
-It hides imbalance. The 46 labels are 16 `accepted`, 12 `review`, 11
-`rejected` and 7 `invalid` -- counted off the loaded table, not guessed -- so a
-rule that accepted everything and read nothing would score 0.35. Macro F1 gives
-that rule about 0.13, which is the honest description.
-
-And it treats every mistake as equal. Accepting somebody who should have been
-rejected costs money; rejecting somebody who should have been accepted costs a
-creator who never applies again. `05` counts those separately and reports them
-separately, because the right trade between them is a business decision and
-not a rounding one.
-
-### Retries are n8n's; classification is not
-
-`retryOnFail` + `maxTries` + `waitBetweenTries` replaces `retry.py` almost
-exactly, with one gap worth knowing: **no jitter**. Every workflow that failed
-during an outage retries on the same fixed grid and hits the provider
-together, which is how a recovering service gets knocked straight back over.
-At this volume it does not matter. At 100x, a Wait node on a random interval
-is the first thing to add.
-
-What n8n does not give you is the distinction between a failure worth retrying
-and one that is not. That stays structural here: an error output is a
-permanent failure, an exhausted retry is a transient one, and no string is
-parsed. The one place a message *is* pattern-matched is `03`, and the node
-says at length why that is the weakest code in the repository and why it lives
-there rather than in the pipeline.
-
-### A dead letter is a row, and a replay is a claim
-
-n8n's own answer to a failed execution is a "Retry" button that re-runs the
-workflow from its trigger. For a scheduled poll that means re-fetching four
-hundred applicants to recover one.
-
-So failures land in `dead_letters`, and `04` replays a single item into `01`
-through its second entry point. The claim is `UPDATE ... WHERE id = $1 AND
-replayed_at IS NULL`: two operators clicking replay in the same second produce
-one UPDATE that matches and one that matches nothing. The database decides,
-not a check-then-act sequence with a gap in the middle. Replaying twice pays
-somebody twice, and "we told everyone to be careful" is not a control.
-
-A replay that fails again releases its own claim. Without that, the row sits
-marked as handled, having never been handled — which is worse than never
-replaying it, because now nothing is counting it.
-
-### The digest reports silence
-
-Every other number in `06` describes work that happened. `runs_24h = 0`
-describes work that did not: a deactivated workflow, an expired credential, a
-schedule that stopped firing. None of those produce a failure, and none of
-them produce an alert. They produce silence, and silence reads exactly like a
-quiet week.
-
-The digest also records its own run, so if the digest itself dies, tomorrow's
-digest says `NOTHING RAN` about itself. And it is sent every morning whether
-or not anything is wrong, because a channel used only for bad news gives you
-no way to tell "nothing went wrong" from "the thing that sends the messages
-went wrong".
+It is the Error Workflow for 01 and 02, and catches anything their own error
+branches did not. It writes a `crashed` row to `dead_letters`, then alerts. If
+n8n reports the same crashed execution again after a restart, the second report
+is ignored.
 
 ---
 
-## Setting it up
+## Settings
 
-### 1. The database
-
-A dedicated database and role in `postgres-shared`, never the `postgres`
-superuser — the standard in the root `CLAUDE.md`, and the reason is that a
-compromise of this app should not be able to read another one's data.
+Everything tunable is a row in the `config` table (`sql/02-config.sql`),
+because `$env` is blocked on this n8n instance:
 
 ```sql
-CREATE ROLE creator_prod LOGIN PASSWORD '...';
-CREATE DATABASE creator_prod OWNER creator_prod;
-```
-
-Then, **as `creator_prod` and not as `postgres`**, because migrations need
-table *ownership* and not merely privileges:
-
-```bash
-psql "$DATABASE_URL" -f n8n/sql/01-schema.sql
-psql "$DATABASE_URL" -f n8n/sql/02-golden-set.sql
-psql "$DATABASE_URL" -f n8n/sql/03-config.sql
-```
-
-Or `bash n8n/deploy.sh` on the box, which does all of it plus the import and
-runs the ownership and grant checks for you.
-
-```sql
--- Should return nothing.
-select tablename, tableowner from pg_tables
- where schemaname = 'public' and tableowner <> 'creator_prod';
-```
-
-### 2. There is no environment to configure
-
-This used to be a list of variables. It is now one row per setting in the
-`config` table, because `$env` does not resolve on this instance — see *What
-the first run found* below.
-
-The only thing that has to exist outside the database is credentials, and
-there are two:
-
-| Credential | Type | Used by |
-|---|---|---|
-| `creator_prod postgres` | Postgres | all 31 Postgres nodes, by the fixed id `creatorPgCred001` |
-| a replay token | Header Auth | the webhook in `04`, assigned in the UI |
-
-The Postgres credential can be imported (`n8n import:credentials`), which is
-what `deploy.sh` expects you to have done. The Header Auth one is worth doing
-by hand: it guards an endpoint that re-runs work which sends email, and it
-should not exist in a file anywhere.
-
-Changing a threshold afterwards is a `psql` one-liner and a re-run of `05`:
-
-```sql
+SELECT key, value, note FROM config;
 UPDATE config SET value = '8000', updated_at = now() WHERE key = 'min_followers';
 ```
 
-### 3. Import
+The only credential is the Postgres one, `creator_prod postgres` (id
+`creatorPgCred001`).
 
-Every workflow carries a **fixed id** at the top of its JSON —
-`creatorRules0000`, `creatorPipeline1`, and so on — and the cross-references
-between them are those ids rather than placeholders to fill in.
+## Dealing with failures
 
-That is worth doing deliberately. n8n normally assigns a random id on import,
-which means every reference between workflows has to be pasted in by hand
-afterwards: the `Screen` node's target, the replay's target, and the Error
-Workflow setting on six workflows. Twenty edits, in the UI, in the right
-order, with no way to tell you missed one except a branch that silently never
-fires. Fixing the ids turns all of it into a file that imports.
+```sql
+SELECT id, kind, reason, error, execution_url
+FROM dead_letters WHERE replayed_at IS NULL ORDER BY created_at DESC;
+```
 
-It also makes the import idempotent — re-importing updates the same workflows
-instead of creating a seventh copy — and it makes the repository the source
-of truth rather than the instance.
+| reason | means | do |
+|---|---|---|
+| `invalid` | the applicant's data is wrong | fix it at the source; the next run picks it up |
+| `exhausted` | a provider stayed down | run `01 pipeline` again once it is back |
+| `permanent` | a payout month was held | check the numbers, then run `02 payout` again |
+| `crashed` | a node threw | open `execution_url` |
+
+When a row is dealt with, mark it: `UPDATE dead_letters SET replayed_at = now() WHERE id = …;`
+
+## Deploy
 
 ```bash
-docker cp n8n/workflows <n8n-container>:/tmp/wf
-docker exec <n8n-container> n8n import:workflow --separate --input=/tmp/wf
+scp -r -i ~/.ssh/coolify_vps n8n ubuntu@51.195.223.171:/tmp/creator-n8n
+ssh -i ~/.ssh/coolify_vps ubuntu@51.195.223.171
+CREATOR_DB_PASSWORD="$(cat ~/.creator_prod_password)" sudo -E bash /tmp/creator-n8n/deploy.sh
 ```
 
-Import order does not matter, because nothing is resolved at import time.
+This applies the schema and config as the `creator_prod` role, imports the
+three workflows and activates them. Every workflow has a fixed id, so a
+re-import updates it rather than making a copy.
 
-`import:workflow` sets every workflow **inactive**, including on a re-import
-of one that was active. Activation is a separate step, and in n8n 2.x it
-applies to sub-workflows too — `00` and `01` have no trigger of their own and
-still have to be active or every call into them fails:
+Before activating, point `applications_url`, `platform_api_url` and
+`mailer_url` at real endpoints. Otherwise every run just fills `dead_letters`.
 
-```bash
-docker exec <n8n> n8n update:workflow --id creatorRules0000 --active=true
-docker restart <n8n>          # the CLI says so, and it means it
-```
+## Lessons from the first real runs
 
-One consequence to know: if these ids ever collide with a workflow already in
-your n8n, the import overwrites it. They are namespaced with `creator` for
-that reason.
+Every one of these passed structural checks and failed silently:
 
-### 3b. Folders live in the instance, not in this directory
+- `sum()` over `bigint` returns `numeric` in Postgres, so every payout came out a
+  cent high until the query cast it back with `::bigint`.
+- `$env` is undefined on this instance, with no error at all. That is why
+  settings live in the `config` table.
+- `splitOut` with *include other fields* nests the data under `data` instead of
+  spreading it, so a Code node is used instead.
+- `$execution.startedAt` is undefined inside sub-workflows. That is one reason
+  this version has none.
 
-In n8n they are grouped under one `creator program` folder, by the argument
-each one makes rather than by execution order:
+## Tests
 
-```
-creator program/
-  pipeline/         00 rules, 01 pipeline, 01a poller, 02 payout
-  reliability/      03 error handler, 04 dead letter replay
-  observability/    05 eval screening, 06 health digest
-```
-
-`workflows/` here stays **flat**, and that is a decision rather than laziness:
-
-```
-$ n8n import:workflow --separate --input=/tmp/nest    # file one level down
-Importing 0 workflows...
-Successfully imported 0 workflows.
-```
-
-`import:workflow` does not recurse. Subfoldering this directory would make
-`deploy.sh` import nothing and report success — a silent no-op deploy, which is
-the exact failure shape the rest of this repository exists to argue against.
-The numeric prefixes already give the files their order, and the grouping that
-helps a reader is in the table at the top of this file.
-
-Two things a re-import does and does not preserve, both worth knowing before
-you run `deploy.sh` against a live instance:
-
-| | Survives a re-import |
-|---|---|
-| Folder placement | yes |
-| Credential assignment | yes, it is in the JSON |
-| `active` | **no** — every workflow comes back inactive |
-
-So a deploy silently stops your automations until you reactivate them. The
-folder tree is not in this repository because it survives, and because it is
-one `UPDATE` against n8n's own database, which is not a thing to put in a
-deploy path that runs regularly.
-
-### 4. Activate, then make it fail on purpose
-
-Activating is not the last step. An automation whose failure path has never
-run is an automation whose failure path does not work, and the failure path is
-half of everything in this directory.
-
-```
-1. Point PLATFORM_API_URL at something that 500s.
-   → four retries, an error output, a row in dead_letters, one alert.
-2. Feed an applicant with platform 'twitch'.
-   → reason 'invalid', never retried, still alerted.
-3. Break the Postgres credential and run 01.
-   → 03 catches it. Run it twice in a minute: the second alert is suppressed
-     and the second row is not.
-4. Replay a dead letter twice.
-   → the second is refused with already_replayed.
-5. Run 05.
-   → a score. Then raise MIN_FOLLOWERS to 8000 and run it again.
-6. Deactivate 01 for a day.
-   → tomorrow's digest says NOTHING RAN.
-```
-
-Those six are the demo. They are more convincing than the happy path, because
-everyone's happy path works.
-
----
-
-## What this has and has not been through
-
-The workflow graphs are **structurally validated** — every JSON parses, every
-connection points at a node that exists, every node is reachable from a
-trigger, and the two entry points into `01` are deliberate. That check is in
-CI.
-
-### Deployed, and the eval has run
-
-All eight workflows are imported into `n8n.senaproject.online` (n8n 2.10.2),
-against a `creator_prod` database and role in `postgres-shared`. The schema,
-the config table and the 46 labelled applications applied without an error,
-and ownership and grants were verified by query rather than assumed.
-
-`05` has run end to end through the real runtime, external task runner and
-all:
-
-```
-ruleset v3-two-thresholds    46 cases    39 correct
-accuracy 0.8478             macro F1 0.8623
-false accepts 2             false rejects 0
-```
-
-The seven failures are **exactly** the seven rows labelled `DISAGREES`. Every
-boundary case passed — 4,999 and 5,000, 19,999 and 20,000 — and so did every
-malformed record and every normalisation, the uppercase platform and the
-leading `@` included. That is the outcome the golden set was built to produce:
-the rules are right about everything a follower count can decide, and wrong
-about exactly the seven things it cannot.
-
-The two false accepts are worth more than the accuracy figure. Both are large
-accounts the rules like and a human would not — one with bought followers, one
-reposting other people's work — and there are zero false rejects. So the rules
-fail in the expensive direction, and no amount of threshold tuning fixes that,
-because followers is not the signal that separates those two rows. The next
-move is a new input, not a new number. That sentence is the entire reason to
-measure precision and recall separately.
-
-### What the first run found
-
-Two things, neither of which structural validation could have caught, and both
-of which fail silently:
-
-**`N8N_BLOCK_ENV_ACCESS_IN_NODE=true`.** Every `$env.X` on this instance
-resolves to undefined — in Code nodes and expressions alike — without raising
-anything. An undefined URL reads as a network error; an undefined threshold
-compares false against every number and would have accepted the entire intake.
-The fix was the `config` table, and it is a better design than the environment
-variables it replaced: a threshold now has an `updated_at`, and `eval_runs`
-records exactly which values produced each score.
-
-**A sub-workflow must be active to be callable.** In n8n 2.x, calling an
-inactive workflow fails with `Workflow is not active and cannot be executed`.
-`00` and `01` are therefore active even though neither has a trigger of its
-own, which looks wrong in the UI and is correct.
-
-### What the first end-to-end run found
-
-`09 fake providers` exists so the pipeline has somewhere real to read from and
-write to: an application feed, a platform API that fails a quarter of its
-calls on purpose, a mailer, and an alert sink. All four are webhooks on the
-same n8n instance, so the demo needs no external account and no signup.
-
-Pointing the config at it and letting it run found four defects that every
-structural check had passed clean.
-
-**The payout was a cent high on every row.** `sum()` over a `bigint` column
-returns `numeric` in Postgres, not `bigint`, which silently turned
-`(views * rate + 500) / 1000` from integer division into decimal division.
-The `+ 500` was already the rounding, so the implicit cast on insert rounded a
-second time: 234.01 EUR where 234.00 was owed. No error, no warning, a
-plausible number in the right column. It was caught by recomputing two rows by
-hand against the stored ones, which is the only way this class of bug is ever
-found — and it is the exact failure the "integer cents end to end" argument
-was written to prevent, defeated by a type promotion nobody types out.
-The fix is `::bigint`.
-
-**`splitOut` with `include: allOtherFields` nests instead of spreading.**
-Each post came out under `data` rather than as top-level fields, so
-`external_id` was undefined and every insert died on a NOT NULL column — while
-the node reported two items out and looked healthy. Replaced with six lines of
-JavaScript, where the shape is the shape.
-
-**`Execute Workflow` defaults to `mode: once`.** One sub-execution receives
-all four hundred applicants as items. The claim that each applicant gets its
-own execution was simply false until `mode: each` was set — the diagram was
-right and the engine was doing something else. And `waitForSubWorkflow: false`,
-added on a parallelism theory that does not apply (n8n runs `each`
-sequentially either way), produced detached executions that ran zero nodes,
-reported success and wrote nothing. A green run that did not happen is the
-worst outcome available.
-
-**`$execution.startedAt` is undefined in a sub-execution.** Every duration
-became `NaN`, and every `runs` insert failed on an integer column — including
-in a node set to `onError: continueRegularOutput`, which did not save it.
-
-The pattern across all four is worth naming: not one of them threw anything a
-structural check could see, and three of the four produced output that looked
-correct. Only running it and then checking the numbers by hand found them.
-
-### What is still untested
-
-- **The replay.** `04` needs a Header Auth credential assigned in the UI
-  before its webhook will accept anything. Everything behind it — the atomic
-  claim, the double-replay refusal, the claim release on a second failure —
-  has never run.
-- **A real provider.** Everything upstream now runs against `09 fake
-  providers`, which is honest about being fake. A real form and a real mail
-  service will have their own opinions about rate limits, pagination and
-  response shapes.
-- **Item pairing.** `01` avoids depending on n8n's `$('Node').item` pairing by
-  routing values through the database and through the API contract instead
-  (the posts endpoint must echo `tracking_code`). Pairing is the part of n8n
-  that breaks quietly under `splitOut` and error branches, and the avoidance
-  is deliberate — but the contract it depends on has not been exercised.
-- **Concurrency.** n8n in queue mode with several workers will run `01` twice
-  concurrently if a poll overruns. Every write here is idempotent, so that is
-  survivable, and it has not been tested under it.
-
-All nine are now active and running against the fake providers. A poll every
-six hours produces three creators, three applicants waiting for a human, two
-rejections and two malformed records dead lettered as `invalid` — and, a
-quarter of the time, a platform call that fails, retries four times and
-exercises the whole failure path on an ordinary afternoon.
-
----
-
-## Scaling, concretely
-
-The Python README argues this in the abstract. In n8n it is specific settings:
-
-**Queue mode.** n8n main + N workers + Redis, which is the `FOR UPDATE SKIP
-LOCKED` argument as a deployment. Watch the memory budget in the root
-`CLAUDE.md`: each worker is a container, and raising one `mem_limit` on that
-box means lowering another.
-
-**Sub-workflow per item** rather than one enormous execution, so a failure at
-item 400 does not take the previous 399 with it. `01` is already shaped for
-it — `04` proves the entry point works.
-
-**Cursor instead of full history.** `$getWorkflowStaticData('global')` holds
-the last-seen timestamp per creator. This is the "the tracker is what gets
-expensive" point: tracking grows with the roster while everything else grows
-with events.
-
-**Rate limits before compute.** At 100x the constraint is the provider's
-limit, not n8n. A Wait node driven by a batch counter, and jitter on the
-retries, in that order.
-
-**Where n8n stops being the answer.** When a single item needs a transaction
-across several writes. n8n has no transaction boundary across nodes: `01`
-creates a creator and then sends an email as two separate committed steps, and
-the only reason that is safe is that the order was chosen so a crash between
-them is recoverable. A pipeline with a genuine multi-write invariant belongs
-in the Python service, and knowing which one you have is the whole judgement.
+`tests/test_n8n_workflows.py` checks the JSON structure: every connection
+points at a real node, every node is reachable, error outputs are wired,
+there are no secrets and no `$env`. It cannot prove the queries run. Only n8n
+can.

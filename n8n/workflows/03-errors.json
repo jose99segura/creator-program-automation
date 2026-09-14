@@ -1,0 +1,152 @@
+{
+  "id": "creatorErrors003",
+  "name": "03 errors",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a3000000-0000-4000-8000-000000000001",
+      "name": "On any workflow error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -660,
+        300
+      ],
+      "notes": "01 and 02 name this workflow as their Error Workflow. It catches whatever their own error outputs did not."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(jsonb_object_agg(key, value), '{}'::jsonb) AS config\nFROM config;",
+        "options": {}
+      },
+      "id": "a3000000-0000-4000-8000-000000000002",
+      "name": "Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        -440,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flatten the Error Trigger payload. A failed run sends `execution`;\n// a trigger that could not start sends `trigger` instead.\nconst d = $('On any workflow error').first().json;\nconst e = d.execution ?? d.trigger ?? {};\nconst wf = d.workflow ?? {};\n\nreturn [{ json: {\n  workflow_id: wf.id ?? 'unknown',\n  workflow_name: wf.name ?? 'unknown',\n  execution_id: String(e.id ?? 'none'),\n  execution_url: e.url ?? `${$('Config').first().json.config.editor_base_url}/workflow/${wf.id}/executions/${e.id}`,\n  node: e.lastNodeExecuted ?? e.error?.node?.name ?? 'unknown',\n  error: e.error?.message ?? e.error?.description ?? 'unknown error',\n  payload: d,\n} }];"
+      },
+      "id": "a3000000-0000-4000-8000-000000000003",
+      "name": "Read the error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO dead_letters\n  (workflow_id, workflow_name, execution_id, execution_url, node, kind,\n   payload, attempts, error, reason)\nVALUES ($1, $2, $3, $4, $5, 'crashed', $6::jsonb, 1, $7, 'crashed')\n-- n8n re-reports an interrupted execution on every restart. The repeat\n-- inserts nothing, returns no row, and so sends no second alert.\nON CONFLICT (workflow_id, execution_id)\n  WHERE reason = 'crashed' AND execution_id <> 'none'\n  DO NOTHING\nRETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [$json.workflow_id, $json.workflow_name, $json.execution_id, $json.execution_url, $json.node, JSON.stringify($json.payload), $json.error] }}"
+        }
+      },
+      "id": "a3000000-0000-4000-8000-000000000004",
+      "name": "Dead letter",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        0,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      },
+      "notes": "Recorded before alerting, so a broken alert channel never loses the failure."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.config.alert_webhook_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: `${$('Read the error').first().json.workflow_name} CRASHED at '${$('Read the error').first().json.node}'\\n${$('Read the error').first().json.error}\\n${$('Read the error').first().json.execution_url}` }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "a3000000-0000-4000-8000-000000000005",
+      "name": "Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Must not fail: an error workflow that throws has nothing to catch it."
+    }
+  ],
+  "connections": {
+    "On any workflow error": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Read the error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the error": {
+      "main": [
+        [
+          {
+            "node": "Dead letter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dead letter": {
+      "main": [
+        [
+          {
+            "node": "Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "timezone": "Europe/Madrid"
+  },
+  "pinData": {}
+}

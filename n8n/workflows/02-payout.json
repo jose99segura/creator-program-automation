@@ -1,0 +1,325 @@
+{
+  "id": "creatorPayout002",
+  "name": "02 payout",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 4 1 * *"
+            }
+          ]
+        }
+      },
+      "id": "a2000000-0000-4000-8000-000000000001",
+      "name": "First of the month",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(jsonb_object_agg(key, value), '{}'::jsonb) AS config\nFROM config;",
+        "options": {}
+      },
+      "id": "a2000000-0000-4000-8000-000000000002",
+      "name": "Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        -660,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Last month, as [start, end) in UTC.\nconst now = new Date();\nconst end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));\nconst start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));\n\nreturn [{ json: {\n  period_start: start.toISOString().slice(0, 10),\n  period_end: end.toISOString().slice(0, 10),\n} }];"
+      },
+      "id": "a2000000-0000-4000-8000-000000000003",
+      "name": "Period",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(SUM(amount_cents), 0)::bigint AS total_cents\nFROM payouts\nWHERE period_end = $1::date;",
+        "options": {
+          "queryReplacement": "={{ [$json.period_start] }}"
+        }
+      },
+      "id": "a2000000-0000-4000-8000-000000000004",
+      "name": "Previous period total",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        -220,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Recomputed from posts every run, so running it twice updates rather than pays twice.\n-- Integer cents only. The ::bigint matters: sum() returns numeric, which\n-- turned the integer division into a decimal one and added a cent to every row.\nINSERT INTO payouts\n  (creator_id, period_start, period_end, post_count, total_views,\n   amount_cents, computed_at)\nSELECT c.id, $1::date, $2::date,\n       COUNT(p.id)::int,\n       COALESCE(SUM(p.views), 0),\n       (COALESCE(SUM(p.views), 0)::bigint * c.rate_cents_per_1k + 500) / 1000,\n       now()\nFROM creators c\nLEFT JOIN posts p\n  ON p.creator_id = c.id\n  AND p.published_at >= $1::date\n  AND p.published_at <  $2::date\nWHERE c.status = 'active'\nGROUP BY c.id, c.rate_cents_per_1k\nHAVING (COALESCE(SUM(p.views), 0)::bigint * c.rate_cents_per_1k + 500) / 1000\n       >= (SELECT value::int FROM config WHERE key = 'min_payout_cents')\nON CONFLICT (creator_id, period_start, period_end) DO UPDATE\n  SET post_count   = EXCLUDED.post_count,\n      total_views  = EXCLUDED.total_views,\n      amount_cents = EXCLUDED.amount_cents,\n      computed_at  = EXCLUDED.computed_at\nRETURNING creator_id, amount_cents;",
+        "options": {
+          "queryReplacement": "={{ [$('Period').first().json.period_start, $('Period').first().json.period_end] }}"
+        }
+      },
+      "id": "a2000000-0000-4000-8000-000000000005",
+      "name": "Recompute payouts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        0,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Hold the run for a human if the total looks wrong: above an absolute\n// ceiling, or more than N times last month. Nothing is transferred either way.\nconst cfg = $('Config').first().json.config;\nconst MULTIPLIER = Number(cfg.payout_sanity_multiplier);\nconst CEILING_CENTS = Number(cfg.payout_ceiling_cents);\n\nconst rows = $input.all().map((i) => i.json).filter((r) => r.amount_cents !== undefined);\nconst total = rows.reduce((s, r) => s + Number(r.amount_cents), 0);\nconst prevTotal = Number($('Previous period total').first().json.total_cents ?? 0);\n\nconst reasons = [];\nif (total > CEILING_CENTS) reasons.push(`total ${total} cents is above the ceiling ${CEILING_CENTS}`);\nif (prevTotal > 0 && total > prevTotal * MULTIPLIER) reasons.push(`total ${total} cents is more than ${MULTIPLIER}x last period's ${prevTotal}`);\n\nreturn [{ json: {\n  ...$('Period').first().json,\n  creators: rows.length,\n  total_cents: total,\n  previous_total_cents: prevTotal,\n  sane: reasons.length === 0,\n  reason: reasons.join('; ') || 'within expected bounds',\n} }];"
+      },
+      "id": "a2000000-0000-4000-8000-000000000006",
+      "name": "Sanity check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-Within bounds?",
+              "leftValue": "={{ $json.sane }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a2000000-0000-4000-8000-000000000007",
+      "name": "Within bounds?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.config.alert_webhook_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: `payouts ${$json.period_start} to ${$json.period_end}: ${$json.creators} creator(s), ${($json.total_cents / 100).toFixed(2)} EUR (last period ${($json.previous_total_cents / 100).toFixed(2)} EUR)` }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "a2000000-0000-4000-8000-000000000008",
+      "name": "Report the total",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        200
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO dead_letters\n  (workflow_id, workflow_name, execution_id, execution_url, node, kind,\n   payload, attempts, error, reason)\nVALUES ($1, $2, $3, $4, 'Sanity check', 'payout', $5::jsonb, 1, $6, 'permanent');",
+        "options": {
+          "queryReplacement": "={{ [$workflow.id, $workflow.name, $execution.id, `${$('Config').first().json.config.editor_base_url}/workflow/${$workflow.id}/executions/${$execution.id}`, JSON.stringify($json), $json.reason] }}"
+        }
+      },
+      "id": "a2000000-0000-4000-8000-000000000009",
+      "name": "Hold for review",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        660,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.config.alert_webhook_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: `PAYOUTS HELD ${$('Sanity check').first().json.period_start} to ${$('Sanity check').first().json.period_end}\\n${$('Sanity check').first().json.reason}\\nRows are stored. Nothing has been transferred.\\n` + `${$('Config').first().json.config.editor_base_url}/workflow/${$workflow.id}/executions/${$execution.id}` }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "a2000000-0000-4000-8000-00000000000a",
+      "name": "Alert the hold",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        400
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "First of the month": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Period",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Period": {
+      "main": [
+        [
+          {
+            "node": "Previous period total",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Previous period total": {
+      "main": [
+        [
+          {
+            "node": "Recompute payouts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recompute payouts": {
+      "main": [
+        [
+          {
+            "node": "Sanity check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sanity check": {
+      "main": [
+        [
+          {
+            "node": "Within bounds?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Within bounds?": {
+      "main": [
+        [
+          {
+            "node": "Report the total",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hold for review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hold for review": {
+      "main": [
+        [
+          {
+            "node": "Alert the hold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "creatorErrors003",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "timezone": "Europe/Madrid"
+  },
+  "pinData": {}
+}

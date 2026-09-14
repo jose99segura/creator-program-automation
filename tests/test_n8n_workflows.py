@@ -1,26 +1,22 @@
 """Structural checks on the exported n8n workflows.
 
-These are not a substitute for running them. Nothing here proves a Postgres
-query is valid or that a node's typeVersion still exists in the n8n release
-you are on -- only an execution against a live instance does that, and the
-n8n README says plainly that it has not happened yet.
-
-What they do catch is the class of mistake that is invisible in a 700 line
-JSON file and obvious the moment it is stated: a connection pointing at a node
-that was renamed, a node nothing routes to, an error output wired to nothing,
-a workflow with no error workflow configured. Every one of those imports
-cleanly and fails later, which is the worst shape a defect can have.
+They do not prove a query is valid -- only running against n8n does that. They
+catch the mistakes that import cleanly and fail later: a connection to a
+renamed node, a node nothing routes to, an error output wired to nothing.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 from pathlib import Path
 
 import pytest
 
-WORKFLOW_DIR = Path(__file__).resolve().parent.parent / "n8n" / "workflows"
+N8N_DIR = Path(__file__).resolve().parent.parent / "n8n"
+WORKFLOW_DIR = N8N_DIR / "workflows"
+DASHBOARD_DIR = N8N_DIR / "dashboard"
 WORKFLOWS = sorted(WORKFLOW_DIR.glob("*.json"))
 
 TRIGGER_TYPES = {
@@ -34,6 +30,14 @@ TRIGGER_TYPES = {
 
 def load(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def workflow(stem: str) -> dict:
+    return load(WORKFLOW_DIR / f"{stem}.json")
+
+
+def node(wf: dict, name: str) -> dict:
+    return next(n for n in wf["nodes"] if n["name"] == name)
 
 
 def node_names(wf: dict) -> set[str]:
@@ -50,199 +54,112 @@ def targets(wf: dict) -> set[str]:
 
 
 def strip_comments(code: str) -> str:
-    """Line comments removed, so a check reads code rather than prose about it."""
-    return "\n".join(
-        line for line in code.splitlines()
-        if not line.lstrip().startswith("//"))
+    return "\n".join(line for line in code.splitlines() if not line.lstrip().startswith("//"))
 
 
-def test_there_are_workflows() -> None:
-    """A glob that silently matches nothing turns every test below green."""
-    assert len(WORKFLOWS) >= 9, f"expected the full set, found {len(WORKFLOWS)}"
-
-
-@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
-def test_parses_and_has_the_expected_shape(path: Path) -> None:
-    wf = load(path)
-    assert wf["name"], "a workflow with no name is unfindable in the UI"
-    assert wf["nodes"], "no nodes"
-    assert "connections" in wf
+def test_the_expected_workflows_exist() -> None:
+    """A glob that silently matches nothing would turn every test below green."""
+    assert [p.stem for p in WORKFLOWS] == ["01-pipeline", "02-payout", "03-errors", "04-dashboard"]
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
 def test_node_names_are_unique(path: Path) -> None:
-    """Connections address nodes by name, so a duplicate is an ambiguous edge.
-
-    n8n permits this on import and then routes to whichever it found first.
-    """
+    """Connections address nodes by name, so a duplicate is an ambiguous edge."""
     names = [n["name"] for n in load(path)["nodes"]]
-    assert len(names) == len(set(names)), f"duplicate node names in {path.name}"
+    assert len(names) == len(set(names))
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
 def test_every_connection_points_at_a_node_that_exists(path: Path) -> None:
-    """The failure mode of renaming a node in the editor and exporting.
-
-    n8n imports the dangling edge without complaint and the branch is simply
-    never taken, which looks exactly like a condition that is never true.
-    """
     wf = load(path)
     names = node_names(wf)
     for source, conn in wf["connections"].items():
-        assert source in names, f"{path.name}: connection from unknown {source!r}"
+        assert source in names, f"connection from unknown {source!r}"
         for outputs in conn.get("main", []):
             for c in outputs:
-                assert c["node"] in names, (
-                    f"{path.name}: {source!r} points at unknown {c['node']!r}")
+                assert c["node"] in names, f"{source!r} points at unknown {c['node']!r}"
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
 def test_every_node_is_reachable(path: Path) -> None:
-    """An orphan node is either dead weight or a branch somebody forgot to wire.
-
-    The second is the one that matters: a dead letter node nothing routes to
-    is a workflow that looks like it handles failure and does not.
-    """
     wf = load(path)
     triggers = {n["name"] for n in wf["nodes"] if n["type"] in TRIGGER_TYPES}
+    assert triggers, "nothing can start this workflow"
     orphans = node_names(wf) - targets(wf) - triggers
-    assert not orphans, f"{path.name}: unreachable nodes {sorted(orphans)}"
-
-
-@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
-def test_every_workflow_has_an_entry_point(path: Path) -> None:
-    wf = load(path)
-    assert any(n["type"] in TRIGGER_TYPES for n in wf["nodes"]), (
-        f"{path.name}: nothing can start this workflow")
+    assert not orphans, f"unreachable nodes {sorted(orphans)}"
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
 def test_error_outputs_are_connected(path: Path) -> None:
-    """onError: continueErrorOutput adds a second output. It must go somewhere.
-
-    A node set to route its failures onward, with nothing attached to that
-    output, swallows them: the item disappears, the execution succeeds, and
-    the run is reported as clean. That is the single most dangerous
-    misconfiguration in n8n, because it converts a failure into a silence.
-    """
+    """A node routing errors to an unconnected output swallows them silently."""
     wf = load(path)
-    for node in wf["nodes"]:
-        if node.get("onError") != "continueErrorOutput":
+    for n in wf["nodes"]:
+        if n.get("onError") != "continueErrorOutput":
             continue
-        outputs = wf["connections"].get(node["name"], {}).get("main", [])
-        assert len(outputs) >= 2 and outputs[1], (
-            f"{path.name}: {node['name']!r} routes errors to its second output "
-            f"and nothing is connected to it")
+        outputs = wf["connections"].get(n["name"], {}).get("main", [])
+        assert len(outputs) >= 2 and outputs[1], f"{n['name']!r} error output goes nowhere"
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
 def test_no_secrets_in_the_export(path: Path) -> None:
-    """n8n exports are the easiest way to leak a token: people paste them.
-
-    Every value that varies by environment is a row in the config table or an
-    n8n credential, so the JSON in this repository is safe to share as-is.
-    This asserts that rather than trusting it.
-    """
     raw = path.read_text(encoding="utf-8")
     for marker in ("xoxb-", "sk-", "-----BEGIN", "postgres://", "postgresql://"):
-        assert marker not in raw, f"{path.name}: looks like a credential ({marker})"
+        assert marker not in raw, f"looks like a credential ({marker})"
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
 def test_nothing_reads_the_environment(path: Path) -> None:
-    """The instance runs with N8N_BLOCK_ENV_ACCESS_IN_NODE=true.
-
-    Every `$env.X` resolves to undefined there -- in Code nodes and in
-    expressions alike -- and it does so silently: an undefined URL reads as a
-    network error, an undefined threshold compares false against everything
-    and accepts the entire intake. Nothing throws.
-
-    That setting is worth keeping, because turning it off would let any Code
-    node on the instance read DB_POSTGRESDB_PASSWORD. So config comes from the
-    `config` table and secrets come from credentials, and this test is what
-    stops a future edit from quietly reintroducing the dependency.
-    """
-    raw = path.read_text(encoding="utf-8")
-    uses = re.findall(r"\$env\.[A-Z][A-Z0-9_]+", raw)
-    assert not uses, (
-        f"{path.name} reads {sorted(set(uses))}, which is blocked on this "
-        f"instance. Operational values belong in the config table; secrets "
-        f"belong in a credential.")
+    """$env is blocked on the instance and resolves to undefined without an error."""
+    uses = re.findall(r"\$env\.[A-Z][A-Z0-9_]+", path.read_text(encoding="utf-8"))
+    assert not uses, f"reads {sorted(set(uses))}; use the config table instead"
 
 
-@pytest.mark.parametrize(
-    "path", [p for p in WORKFLOWS if p.stem != "00-screening-rules"],
-    ids=lambda p: p.stem)
-def test_workflows_that_need_config_load_it(path: Path) -> None:
-    """A `$('Config')` reference only resolves if that node ran first.
-
-    n8n does not check this at import. The expression evaluates to undefined
-    at runtime and the node carries on with a broken URL, which is the same
-    silent-failure shape as the $env problem it replaced.
-    """
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
+def test_config_is_loaded_before_it_is_used(path: Path) -> None:
     wf = load(path)
-    raw = path.read_text(encoding="utf-8")
-    if "$('Config')" not in raw:
-        pytest.skip("does not reference Config")
-    assert "Config" in node_names(wf), (
-        f"{path.name} references $('Config') but has no node called Config")
+    if "$('Config')" in path.read_text(encoding="utf-8"):
+        assert "Config" in node_names(wf)
 
 
-def test_the_ruleset_takes_its_thresholds_from_the_caller() -> None:
-    """00 must stay a pure function: no $env, no database, no clock.
-
-    It is the one node the eval and production genuinely share, and the moment
-    it reaches outside itself for a value, the eval stops being able to say
-    what it measured.
-    """
-    wf = load(WORKFLOW_DIR / "00-screening-rules.json")
-    code = "".join(n["parameters"].get("jsCode", "") for n in wf["nodes"])
-    assert "_config" in code, "the ruleset does not read thresholds from its input"
-
-    # Comments stripped first. Both this file and the ruleset discuss $env and
-    # require() at length precisely because they are the things not to use, and
-    # a check that cannot tell prose from code fails on its own explanation.
-    body = strip_comments(code)
-    for forbidden in ("$env.", "$('Config')", "require(", "$http", "fetch("):
-        assert forbidden not in body, (
-            f"the ruleset reaches outside itself via {forbidden!r}")
-    assert not any(n["type"] == "n8n-nodes-base.postgres" for n in wf["nodes"]),         "the ruleset queries the database"
+@pytest.mark.parametrize("stem", ["01-pipeline", "02-payout", "04-dashboard"])
+def test_failures_go_to_the_error_workflow(stem: str) -> None:
+    assert workflow(stem)["settings"]["errorWorkflow"] == workflow("03-errors")["id"]
 
 
-def test_the_ruleset_has_exactly_one_home() -> None:
-    """The whole argument for 00 being a sub-workflow, asserted.
-
-    If somebody pastes the screening logic into the pipeline or the eval to
-    save a node, the eval starts scoring a copy of the rules instead of the
-    rules. That is a silent failure of the measurement itself, so it is worth
-    a test that names it.
-    """
-    others = [p for p in WORKFLOWS if p.stem != "00-screening-rules"]
-    for path in others:
-        raw = path.read_text(encoding="utf-8")
-        assert "REVIEW_FOLLOWERS" not in raw, (
-            f"{path.stem} contains screening thresholds. The ruleset lives in "
-            f"00-screening-rules and is called, never copied.")
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
+def test_every_webhook_has_a_stable_id(path: Path) -> None:
+    """Without webhookId n8n registers the path under a generated prefix, and callers get 404."""
+    for n in load(path)["nodes"]:
+        if n["type"] == "n8n-nodes-base.webhook":
+            assert n.get("webhookId"), f"{n['name']!r} has no webhookId"
 
 
-def test_the_eval_and_the_pipeline_call_the_same_ruleset() -> None:
-    """Both must point at 00, or the eval measures something else entirely."""
-    for stem in ("01-pipeline", "05-eval-screening"):
-        raw = (WORKFLOW_DIR / f"{stem}.json").read_text(encoding="utf-8")
-        assert "00_SCREENING_RULES_WORKFLOW_ID" in raw or "screening" in raw, (
-            f"{stem} does not reference the screening rules workflow")
+def test_an_invalid_applicant_is_dead_lettered_once() -> None:
+    """The index and the ON CONFLICT clause only work as a pair."""
+    schema = (N8N_DIR / "sql" / "01-schema.sql").read_text(encoding="utf-8")
+    assert "idx_dead_letters_one_open_invalid" in schema
+    query = node(workflow("01-pipeline"), "Dead letter")["parameters"]["query"]
+    assert "ON CONFLICT" in query and "DO NOTHING" in query
+
+
+def test_a_crashed_execution_is_dead_lettered_once() -> None:
+    schema = (N8N_DIR / "sql" / "01-schema.sql").read_text(encoding="utf-8")
+    assert "idx_dead_letters_one_per_crash" in schema
+    query = node(workflow("03-errors"), "Dead letter")["parameters"]["query"]
+    assert "ON CONFLICT (workflow_id, execution_id)" in query and "DO NOTHING" in query
+
+
+def test_payout_amounts_stay_integer() -> None:
+    """sum() over bigint returns numeric; without the cast every payout was a cent high."""
+    query = node(workflow("02-payout"), "Recompute payouts")["parameters"]["query"]
+    assert "::bigint * c.rate_cents_per_1k + 500) / 1000" in query
 
 
 # ---------------------------------------------------------------------------
 # The dashboard
 # ---------------------------------------------------------------------------
 
-DASHBOARD_DIR = WORKFLOW_DIR.parent / "dashboard"
-
-
 def _load_build():
-    import importlib.util
-
     spec = importlib.util.spec_from_file_location("dashboard_build", DASHBOARD_DIR / "build.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -250,136 +167,48 @@ def _load_build():
 
 
 def test_the_dashboard_workflow_embeds_the_current_page() -> None:
-    """Editing page.html without rebuilding must fail here, not in production.
-
-    The workflow JSON is what gets deployed. If it drifts from the page, the
-    file everyone reads and reviews is not the page anyone sees.
-    """
+    """Editing page.html without rebuilding must fail here, not in production."""
     build = _load_build()
     page = (DASHBOARD_DIR / "page.html").read_text(encoding="utf-8")
-    wf = load(WORKFLOW_DIR / "07-dashboard.json")
-    node = next(n for n in wf["nodes"] if n["name"] == build.NODE)
-    assert node["parameters"]["jsCode"] == build.render_js(page), (
-        "07-dashboard.json is stale: run python n8n/dashboard/build.py")
+    assert node(workflow("04-dashboard"), build.NODE)["parameters"]["jsCode"] == build.render_js(page), (
+        "04-dashboard.json is stale: run python n8n/dashboard/build.py")
 
 
 def test_the_dashboard_never_writes_html_from_data() -> None:
-    """Every string on that page came from an applicant or an error message.
-
-    innerHTML with any of it is a stored XSS on a page that holds a live
-    action token. textContent only.
-    """
+    """Handles and error messages come from outside; markup from them is stored XSS."""
     page = (DASHBOARD_DIR / "page.html").read_text(encoding="utf-8")
     script = page[page.index("<script>"):]
     for forbidden in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"):
-        assert forbidden not in strip_comments(script), (
-            f"the dashboard uses {forbidden}, which renders untrusted data as markup")
+        assert forbidden not in strip_comments(script), f"the dashboard uses {forbidden}"
 
 
 def test_the_dashboard_escapes_state_for_a_script_element() -> None:
-    """The one line standing between an applicant's handle and script execution."""
-    build = _load_build()
-    js = build.render_js("<p>/*__STATE__*/null</p>")
-    assert r"replace(/</g, '\\u003c')" in js
-    assert r"/\u2028/g" in js and r"/\u2029/g" in js
-    # A literal U+2028, U+2029 or an ordinary space inside a regex would each
-    # silently corrupt the page data. Only the escaped forms are acceptable.
+    """The one line between an applicant's handle and script execution."""
+    bs = chr(92)
+    js = _load_build().render_js("<p>/*__STATE__*/null</p>")
+    assert "replace(/</g, '" + bs * 2 + "u003c')" in js
+    assert "/" + bs + "u2028/g" in js and "/" + bs + "u2029/g" in js
+    # A literal U+2028/U+2029, or a plain space, inside the regex silently corrupts the data.
+    assert chr(0x2028) not in js and chr(0x2029) not in js
     assert "/ /g" not in js
-    assert "\u2028" not in js and "\u2029" not in js
     assert "() => json" in js, "replacement must be a function, not a string"
 
 
 def test_dashboard_actions_are_behind_auth_and_a_token() -> None:
-    """Both webhooks authenticate, and the action one also checks the CSRF token."""
-    wf = load(WORKFLOW_DIR / "07-dashboard.json")
+    wf = workflow("04-dashboard")
     hooks = [n for n in wf["nodes"] if n["type"] == "n8n-nodes-base.webhook"]
     assert len(hooks) == 2
     for hook in hooks:
         assert hook["parameters"].get("authentication") == "basicAuth", hook["name"]
         assert "httpBasicAuth" in hook.get("credentials", {}), hook["name"]
-    raw = (WORKFLOW_DIR / "07-dashboard.json").read_text(encoding="utf-8")
-    assert "dashboard_action_token" in raw
+    assert "dashboard_action_token" in json.dumps(node(wf, "Token matches?"))
+    assert "dashboard_action_token" in (N8N_DIR / "sql" / "02-config.sql").read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("stem,target", [
-    ("01a-poller", "Config"),
-    ("05-eval-screening", "Config"),
-    ("04-dlq-replay", "Claim it"),
-])
-def test_dashboard_can_start_the_workflows_it_offers(stem: str, target: str) -> None:
-    """A button that calls a workflow with no Execute Workflow trigger does nothing.
-
-    n8n does not complain at import. The call fails at the moment someone
-    presses it, which is a demo.
-    """
-    wf = load(WORKFLOW_DIR / f"{stem}.json")
-    triggers = [n for n in wf["nodes"] if n["type"] == "n8n-nodes-base.executeWorkflowTrigger"]
-    assert triggers, f"{stem} cannot be called from the dashboard"
-    name = triggers[0]["name"]
-    assert wf["connections"][name]["main"][0][0]["node"] == target
-
-
-@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
-def test_every_webhook_has_a_stable_id(path: Path) -> None:
-    """Without webhookId, n8n registers the path under a generated prefix.
-
-    The URL becomes <workflow id>/<node name>/<path>. The node imports, the
-    workflow activates, and every caller using the documented path gets a
-    404. It happened to 09, and then went unnoticed on 04 until the dashboard
-    deploy listed the registered paths -- which is what a test is for.
-    """
-    wf = load(path)
-    for node in wf["nodes"]:
-        if node["type"] == "n8n-nodes-base.webhook":
-            assert node.get("webhookId"), f"{path.name}: {node['name']!r} has no webhookId"
-
-
-def test_an_invalid_applicant_is_dead_lettered_once() -> None:
-    """The poller re-reads the feed; a broken record must not re-enter the queue.
-
-    Found by the dashboard, not by a test: 2 malformed applicants had become
-    32 dead letters in a week. The index and the ON CONFLICT only work as a
-    pair -- an index without the clause makes every re-poll fail the insert,
-    and the clause without the index is a syntax error.
-    """
-    schema = (WORKFLOW_DIR.parent / "sql" / "01-schema.sql").read_text(encoding="utf-8")
-    assert "idx_dead_letters_one_open_invalid" in schema
-    wf = load(WORKFLOW_DIR / "01-pipeline.json")
-    query = next(n for n in wf["nodes"] if n["name"] == "Dead letter")["parameters"]["query"]
-    assert "ON CONFLICT" in query and "DO NOTHING" in query
-
-
-def test_a_crashed_execution_is_dead_lettered_once() -> None:
-    """n8n re-reports an interrupted execution on every startup.
-
-    One execution became five dead letters across five restarts before this
-    existed. Index and clause only work as a pair.
-    """
-    schema = (WORKFLOW_DIR.parent / "sql" / "01-schema.sql").read_text(encoding="utf-8")
-    assert "idx_dead_letters_one_per_crash" in schema
-    wf = load(WORKFLOW_DIR / "03-error-handler.json")
-    query = next(n for n in wf["nodes"] if n["name"] == "Dead letter")["parameters"]["query"]
-    assert "ON CONFLICT (workflow_id, execution_id)" in query and "DO NOTHING" in query
-
-
-def test_a_failed_fetch_is_never_replayed_as_an_applicant() -> None:
-    """A poll-level failure carries an HTTP error, not an applicant.
-
-    Replaying it into the pipeline would fail validation and mint a new
-    'invalid' dead letter about data that never existed.
-    """
-    poller = load(WORKFLOW_DIR / "01a-poller.json")
-    dl = next(n for n in poller["nodes"] if n["name"] == "Dead letter")
-    assert "'ingest', $6::jsonb" not in dl["parameters"]["query"]
-    assert "'poll'" in dl["parameters"]["options"]["queryReplacement"]
-
-    replay = load(WORKFLOW_DIR / "04-dlq-replay.json")
-    gate = next(n for n in replay["nodes"] if n["name"] == "Replayable kind?")
-    assert "'poll'" not in json.dumps(gate["parameters"])
-
-
-def test_the_replay_webhook_has_its_credential() -> None:
-    """Header auth with no credential answers 500 to everyone."""
-    wf = load(WORKFLOW_DIR / "04-dlq-replay.json")
-    hook = next(n for n in wf["nodes"] if n["name"] == "Replay webhook")
-    assert "httpHeaderAuth" in hook.get("credentials", {})
+def test_the_dashboard_button_can_start_the_pipeline() -> None:
+    """Calling a workflow with no Execute Workflow trigger fails only when someone presses the button."""
+    target = node(workflow("04-dashboard"), "Run the pipeline")["parameters"]["workflowId"]["value"]
+    pipeline = workflow("01-pipeline")
+    assert target == pipeline["id"]
+    trigger = next(n for n in pipeline["nodes"] if n["type"] == "n8n-nodes-base.executeWorkflowTrigger")
+    assert pipeline["connections"][trigger["name"]]["main"][0][0]["node"] == "Config"

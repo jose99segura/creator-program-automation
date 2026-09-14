@@ -1,130 +1,17 @@
 -- The Postgres schema behind the n8n workflows.
 --
--- This is schema.sql translated to Postgres, minus one table and plus three.
---
--- Gone: `tasks`. n8n *is* the queue -- its execution list, its per-node retry
--- settings and its wait states replace queue.py entirely, and keeping a
--- second queue alongside it would mean two things to reason about and two
--- places for work to get stuck.
---
--- Still here: `dead_letters`. n8n retries a node and then gives up, and what
--- it leaves behind is a failed execution, which is a log line with a good UI.
--- You cannot query it, you cannot see how much is waiting, and retrying it
--- re-runs the workflow from the trigger rather than the one item that failed.
--- So the dead letter stays a table.
---
--- New: golden_set, eval_runs, eval_cases. That is the accuracy layer, and
--- there is nothing in n8n to replace it with.
---
 --   psql "$DATABASE_URL" -f n8n/sql/01-schema.sql
+--
+-- Idempotent: every statement is IF NOT EXISTS, so re-running it is safe.
 
 BEGIN;
-
--- ---------------------------------------------------------------------------
--- Failure
--- ---------------------------------------------------------------------------
-
--- Where an item goes when n8n has stopped retrying it, or when it failed in a
--- way that retrying cannot fix.
---
--- workflow_id, execution_id and node are the three columns the Python version
--- does not have and this one cannot do without: with six workflows feeding
--- one table, "which automation broke" has to be a column rather than an
--- inference from the payload shape. execution_url is there so the alert links
--- to the failed run instead of describing it.
-CREATE TABLE IF NOT EXISTS dead_letters (
-    id                  bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    workflow_id         text        NOT NULL,
-    workflow_name       text        NOT NULL,
-    execution_id        text        NOT NULL,
-    execution_url       text,
-    node                text        NOT NULL,
-    kind                text        NOT NULL,  -- ingest|screen|onboard|track|payout|eval
-    payload             jsonb       NOT NULL,  -- the item exactly as it failed
-    attempts            integer     NOT NULL DEFAULT 1,
-    error               text        NOT NULL,
-    reason              text        NOT NULL,  -- exhausted|permanent|invalid|crashed
-    created_at          timestamptz NOT NULL DEFAULT now(),
-    replayed_at         timestamptz,
-    replay_execution_id text
-);
-
-CREATE INDEX IF NOT EXISTS idx_dead_letters_open
-    ON dead_letters (created_at) WHERE replayed_at IS NULL;
-
--- One open 'invalid' dead letter per applicant, however many polls see it.
---
--- A malformed application stays malformed in the source feed until somebody
--- fixes it there, and the poller reads that feed every six hours. Without
--- this index every poll dead-lettered the same record again: the first live
--- week turned 2 broken applicants into 32 rows and a "38 pending failures"
--- count that was mostly the same two problems. A queue whose length does not
--- mean anything is a queue nobody works.
---
--- Partial on purpose. Only 'invalid' is deduplicated, because only 'invalid'
--- is guaranteed to fail identically every time. An 'exhausted' row is a
--- distinct event -- the provider was down at 02:00 and again at 08:00 -- and
--- collapsing those would hide how often it happens.
---
--- COALESCE because a record rejected for having no external_id at all would
--- otherwise have a NULL key, and NULLs never collide in a unique index.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_dead_letters_one_open_invalid
-    ON dead_letters (kind, (COALESCE(payload->>'external_id', md5(payload::text))))
-    WHERE reason = 'invalid' AND replayed_at IS NULL;
-
--- One dead letter per crashed execution, however many times n8n reports it.
---
--- n8n marks an execution that was running when the process stopped as
--- crashed and fires the error workflow for it -- and then fires it again on
--- every later startup. One interrupted execution produced five identical
--- rows across five restarts, each saying "possible out-of-memory issue". No
--- container had actually been OOM-killed: the kernel log was clean for n8n,
--- and n8n uses that message for any execution cut off mid-run. The key is
--- the execution that failed, not the moment the notice arrived.
---
--- execution_id 'none' is excluded. That is what 03 records when a trigger
--- fails before any execution exists, and a trigger failing repeatedly is
--- repeated information worth keeping, not a duplicate.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_dead_letters_one_per_crash
-    ON dead_letters (workflow_id, execution_id)
-    WHERE reason = 'crashed' AND execution_id <> 'none';
-
--- ---------------------------------------------------------------------------
--- Observability
--- ---------------------------------------------------------------------------
-
--- One row per step execution, appended, never updated.
---
--- n8n already stores executions, so this looks redundant until the first time
--- somebody asks "when did screening start failing". n8n's execution list is
--- per workflow, pruned by a retention setting, and not joinable against the
--- domain tables. This is one table you can GROUP BY.
-CREATE TABLE IF NOT EXISTS runs (
-    id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    workflow_id  text        NOT NULL,
-    execution_id text        NOT NULL,
-    kind         text        NOT NULL,
-    status       text        NOT NULL,  -- ok|transient|permanent|invalid
-    item_count   integer     NOT NULL DEFAULT 1,
-    duration_ms  integer     NOT NULL DEFAULT 0,
-    error        text,
-    started_at   timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_runs_started ON runs (started_at DESC);
-CREATE INDEX IF NOT EXISTS idx_runs_kind_status ON runs (kind, status, started_at DESC);
 
 -- ---------------------------------------------------------------------------
 -- Domain
 -- ---------------------------------------------------------------------------
 
--- Applications as they arrived, before anything was decided about them.
--- UNIQUE external_id plus ON CONFLICT DO NOTHING is the whole of idempotency:
--- re-running a batch stores each applicant once.
---
--- Every applicant is stored, including the rejected ones. Keeping only the
--- accepted makes "how many applied and how many did we turn away"
--- unanswerable, and that is the first question anyone asks.
+-- Every applicant, including the rejected ones. UNIQUE external_id is what
+-- makes re-reading the same feed store each applicant once.
 CREATE TABLE IF NOT EXISTS submissions (
     id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     external_id text        NOT NULL UNIQUE,
@@ -154,15 +41,8 @@ CREATE TABLE IF NOT EXISTS creators (
     onboarded_at      timestamptz NOT NULL DEFAULT now()
 );
 
--- (platform, external_id) is UNIQUE so that seeing the same post on ten
--- consecutive polls stores it once and only updates the view count. Without
--- it a payout multiplies by however many times the tracker happened to run.
---
--- The CHECK on views is the data quality gate from models.py, moved into the
--- database. In Python it was a pydantic validator; here the workflow is not
--- the only thing that can write to this table, so the ceiling belongs where
--- nothing can route around it. It fires on data that is wrong, not on data
--- that is merely surprising.
+-- UNIQUE (platform, external_id): the same post seen on ten polls is one row,
+-- not ten payouts. The CHECK on views rejects nonsense numbers from a provider.
 CREATE TABLE IF NOT EXISTS posts (
     id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     creator_id    bigint      NOT NULL REFERENCES creators (id),
@@ -179,10 +59,8 @@ CREATE TABLE IF NOT EXISTS posts (
 
 CREATE INDEX IF NOT EXISTS idx_posts_creator ON posts (creator_id, published_at);
 
--- Amounts are integer cents. Never float, never numeric: money that is off by
--- a cent is a support ticket. UNIQUE (creator, period) plus a recompute from
--- posts means running payout twice for a period updates a row rather than
--- paying somebody twice.
+-- Integer cents, never float. UNIQUE (creator, period) means re-running a
+-- month updates the row instead of paying twice.
 CREATE TABLE IF NOT EXISTS payouts (
     id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     creator_id   bigint      NOT NULL REFERENCES creators (id),
@@ -196,78 +74,43 @@ CREATE TABLE IF NOT EXISTS payouts (
 );
 
 -- ---------------------------------------------------------------------------
--- The accuracy layer
+-- Failures
 -- ---------------------------------------------------------------------------
 
--- The labelled dataset the screening rules are measured against.
---
--- expected_decision is a human judgement, and it has to be: a golden set
--- generated from the rules scores 100% by construction and measures nothing
--- at all. Some rows here disagree with what the current thresholds produce.
--- Those disagreements are the entire value of the table.
-CREATE TABLE IF NOT EXISTS golden_set (
-    external_id       text PRIMARY KEY,
-    email             text        NOT NULL,
-    handle            text        NOT NULL,
-    platform          text        NOT NULL,
-    followers         integer,
-    expected_decision text        NOT NULL
-                      CHECK (expected_decision IN
-                             ('accepted', 'review', 'rejected', 'invalid')),
-    note              text        NOT NULL,
-    labelled_by       text        NOT NULL DEFAULT 'jose',
-    labelled_at       timestamptz NOT NULL DEFAULT now()
+-- Anything that failed and needs a person: bad data, a provider that stayed
+-- down after four retries, a payout held for review, or a crashed execution.
+-- Set replayed_at once it has been dealt with.
+CREATE TABLE IF NOT EXISTS dead_letters (
+    id                  bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    workflow_id         text        NOT NULL,
+    workflow_name       text        NOT NULL,
+    execution_id        text        NOT NULL,
+    execution_url       text,
+    node                text        NOT NULL,
+    kind                text        NOT NULL,  -- poll|screen|onboard|track|payout|crashed
+    payload             jsonb       NOT NULL,
+    attempts            integer     NOT NULL DEFAULT 1,
+    error               text        NOT NULL,
+    reason              text        NOT NULL,  -- invalid|exhausted|permanent|crashed
+    created_at          timestamptz NOT NULL DEFAULT now(),
+    replayed_at         timestamptz,
+    replay_execution_id text
 );
 
--- One row per evaluation. ruleset_version names the thing being scored, so
--- that changing a threshold and re-running produces a comparison rather than
--- overwriting the only number you had.
-CREATE TABLE IF NOT EXISTS eval_runs (
-    id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    ruleset_version text         NOT NULL,
-    execution_id    text,
-    total           integer      NOT NULL,
-    correct         integer      NOT NULL,
-    accuracy        numeric(5,4) NOT NULL,
-    macro_f1        numeric(5,4) NOT NULL,
-    per_class       jsonb        NOT NULL,  -- precision/recall/f1/support per decision
-    config          jsonb        NOT NULL,  -- the thresholds this run used
-    started_at      timestamptz  NOT NULL DEFAULT now()
-);
+CREATE INDEX IF NOT EXISTS idx_dead_letters_open
+    ON dead_letters (created_at) WHERE replayed_at IS NULL;
 
--- One row per case per run. Without it you have the score and not the cases,
--- and "accuracy went from 0.88 to 0.93" is only actionable if you can list
--- the rows that moved.
-CREATE TABLE IF NOT EXISTS eval_cases (
-    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    eval_run_id bigint  NOT NULL REFERENCES eval_runs (id) ON DELETE CASCADE,
-    external_id text    NOT NULL,
-    expected    text    NOT NULL,
-    actual      text    NOT NULL,
-    correct     boolean NOT NULL,
-    note        text
-);
+-- One open 'invalid' row per applicant. The feed is re-read every six hours
+-- and a broken record stays broken until fixed at the source; without this,
+-- 2 bad applicants became 32 rows in a week.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dead_letters_one_open_invalid
+    ON dead_letters (kind, (COALESCE(payload->>'external_id', md5(payload::text))))
+    WHERE reason = 'invalid' AND replayed_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_eval_cases_run ON eval_cases (eval_run_id, correct);
-
--- The confusion matrix as a view, because writing the pivot by hand every
--- time is how people stop looking at it.
-CREATE OR REPLACE VIEW eval_confusion AS
-SELECT eval_run_id, expected, actual, count(*) AS n
-FROM eval_cases
-GROUP BY eval_run_id, expected, actual;
-
--- The two mistakes that do not cost the same. Accepting somebody who should
--- have been rejected costs money; rejecting somebody who should have been
--- accepted costs a creator who never applies again. One accuracy number hides
--- both, which is why the digest reports them separately.
-CREATE OR REPLACE VIEW eval_costly_errors AS
-SELECT eval_run_id,
-       count(*) FILTER (WHERE expected = 'rejected' AND actual = 'accepted')
-           AS false_accepts,
-       count(*) FILTER (WHERE expected = 'accepted' AND actual = 'rejected')
-           AS false_rejects
-FROM eval_cases
-GROUP BY eval_run_id;
+-- One row per crashed execution. n8n re-reports an interrupted execution on
+-- every restart.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dead_letters_one_per_crash
+    ON dead_letters (workflow_id, execution_id)
+    WHERE reason = 'crashed' AND execution_id <> 'none';
 
 COMMIT;
