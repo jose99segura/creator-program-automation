@@ -75,7 +75,7 @@ docker exec "$N8N_CONTAINER" rm -rf /tmp/creator-workflows
 say "activating"
 # A re-import leaves every workflow inactive.
 for id in creatorPipeline1 creatorPayout002 creatorErrors003 creatorDash00007 creatorFakes0009; do
-  docker exec "$N8N_CONTAINER" n8n update:workflow --id "$id" --active=true
+  docker exec "$N8N_CONTAINER" n8n publish:workflow --id="$id"
 done
 docker restart "$N8N_CONTAINER"
 

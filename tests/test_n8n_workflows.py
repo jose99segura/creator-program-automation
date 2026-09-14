@@ -150,6 +150,18 @@ def test_a_crashed_execution_is_dead_lettered_once() -> None:
     assert "ON CONFLICT (workflow_id, execution_id)" in query and "DO NOTHING" in query
 
 
+def test_a_repeated_crash_does_not_alert_again() -> None:
+    """With no row returned, the Postgres node still emits an item, so the alert needs its own gate.
+
+    Found in production: n8n re-reported an old crashed execution on restart,
+    the dead letter was correctly skipped, and the alert went out anyway.
+    """
+    wf = workflow("03-errors")
+    assert wf["connections"]["Dead letter"]["main"][0][0]["node"] == "New failure?"
+    assert wf["connections"]["New failure?"]["main"][0][0]["node"] == "Alert"
+    assert "$json.id" in json.dumps(node(wf, "New failure?")["parameters"])
+
+
 def test_payout_amounts_stay_integer() -> None:
     """sum() over bigint returns numeric; without the cast every payout was a cent high."""
     query = node(workflow("02-payout"), "Recompute payouts")["parameters"]["query"]

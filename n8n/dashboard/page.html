@@ -547,7 +547,9 @@ th.r,td.r{text-align:right}
         postsBox),
       h('li', {}, h('div', { class: 'k', text: '5 · Pago' }),
         h('div', { class: 'v num', text: j.payout ? euros(j.payout.amount_cents) : '—' }),
-        h('p', { text: j.payout ? month(j.payout) : 'aún sin mes calculado' })));
+        h('p', { text: j.payout
+          ? month(j.payout) + ' · solo sus ' + n(j.payout.post_count) + ' posts de ese mes, con las visitas que tenían el día del cálculo'
+          : 'aún sin mes calculado' })));
 
     var formula = null;
     if (j.payout) {

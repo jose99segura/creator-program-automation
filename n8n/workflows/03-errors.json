@@ -74,6 +74,40 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-New failure?",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "number",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a3000000-0000-4000-8000-000000000005",
+      "name": "New failure?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "={{ $('Config').first().json.config.alert_webhook_url }}",
         "sendBody": true,
@@ -83,12 +117,12 @@
           "timeout": 10000
         }
       },
-      "id": "a3000000-0000-4000-8000-000000000005",
+      "id": "a3000000-0000-4000-8000-000000000006",
       "name": "Alert",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        220,
+        440,
         300
       ],
       "onError": "continueRegularOutput",
@@ -130,6 +164,17 @@
       ]
     },
     "Dead letter": {
+      "main": [
+        [
+          {
+            "node": "New failure?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New failure?": {
       "main": [
         [
           {
