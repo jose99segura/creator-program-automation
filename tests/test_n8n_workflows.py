@@ -81,13 +81,44 @@ def test_every_connection_points_at_a_node_that_exists(path: Path) -> None:
                 assert c["node"] in names, f"{source!r} points at unknown {c['node']!r}"
 
 
+STICKY = "n8n-nodes-base.stickyNote"
+
+
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
 def test_every_node_is_reachable(path: Path) -> None:
     wf = load(path)
     triggers = {n["name"] for n in wf["nodes"] if n["type"] in TRIGGER_TYPES}
     assert triggers, "nothing can start this workflow"
-    orphans = node_names(wf) - targets(wf) - triggers
+    notes = {n["name"] for n in wf["nodes"] if n["type"] == STICKY}
+    orphans = node_names(wf) - targets(wf) - triggers - notes
     assert not orphans, f"unreachable nodes {sorted(orphans)}"
+
+
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
+def test_every_workflow_explains_itself_on_the_canvas(path: Path) -> None:
+    """Opening a workflow in n8n should say what it does before anyone reads a node."""
+    notes = [n for n in load(path)["nodes"] if n["type"] == STICKY]
+    summary = [n for n in notes if n["name"] == "Nota: resumen"]
+    assert summary, "no summary sticky note"
+    assert len(summary[0]["parameters"]["content"]) > 200, "summary note is too thin to explain anything"
+
+
+@pytest.mark.parametrize(
+    "path", [p for p in WORKFLOWS if p.stem != "99-fake-providers"], ids=lambda p: p.stem)
+def test_every_node_is_explained_in_a_note(path: Path) -> None:
+    """Every working node is named in bold in some note of its workflow.
+
+    Renaming or adding a node without updating the notes fails here, so the
+    explanation on the canvas cannot quietly drift from what the workflow does.
+    Triggers are described in words ("cada 6 horas") rather than by name.
+    """
+    wf = load(path)
+    text = "\n".join(n["parameters"]["content"] for n in wf["nodes"] if n["type"] == STICKY)
+    mentioned = set(re.findall(r"\*\*(.+?)\*\*", text))
+    working = {n["name"] for n in wf["nodes"]
+               if n["type"] != STICKY and n["type"] not in TRIGGER_TYPES - {"n8n-nodes-base.webhook"}}
+    unexplained = working - mentioned
+    assert not unexplained, f"nodes no note explains: {sorted(unexplained)}"
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)

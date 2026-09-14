@@ -11,8 +11,7 @@
       "position": [
         -660,
         300
-      ],
-      "notes": "01 and 02 name this workflow as their Error Workflow. It catches whatever their own error outputs did not."
+      ]
     },
     {
       "parameters": {
@@ -61,7 +60,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        0,
+        40,
         300
       ],
       "credentials": {
@@ -69,8 +68,7 @@
           "id": "creatorPgCred001",
           "name": "creator_prod postgres"
         }
-      },
-      "notes": "Recorded before alerting, so a broken alert channel never loses the failure."
+      }
     },
     {
       "parameters": {
@@ -102,7 +100,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        220,
+        260,
         300
       ]
     },
@@ -122,11 +120,58 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        440,
+        480,
         300
       ],
-      "onError": "continueRegularOutput",
-      "notes": "Must not fail: an error workflow that throws has nothing to catch it."
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## 03 errors · la red de seguridad\nNo tiene reloj: n8n lo lanza **solo** cuando 01, 02 o 04 se rompen de forma inesperada (un nodo que falla, la base de datos caída…).\n\nLos fallos previstos (datos inválidos, un servicio que no responde) ya los gestiona cada workflow. Este recoge **todo lo demás**.",
+        "width": 780,
+        "height": 280,
+        "color": 5
+      },
+      "id": "5a000000-0000-4000-8000-000000000301",
+      "name": "Nota: resumen",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 1 · Leer el fallo\n**Config** lee la dirección donde se mandan los avisos.\n\n**Read the error** saca qué workflow falló, en qué nodo y con qué mensaje.",
+        "width": 620,
+        "height": 380,
+        "color": 7
+      },
+      "id": "5a000000-0000-4000-8000-000000000302",
+      "name": "Nota: 1 leer el fallo",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 2 · Guardar y avisar una vez\n**Dead letter** lo guarda en `dead_letters` (sale en el dashboard).\n\n**New failure?** comprueba que es nuevo: al reiniciarse, n8n vuelve a avisar de caídas antiguas.\n\n**Alert** manda el aviso con el enlace a la ejecución.",
+        "width": 640,
+        "height": 380,
+        "color": 3
+      },
+      "id": "5a000000-0000-4000-8000-000000000303",
+      "name": "Nota: 2 guardar y avisar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -20,
+        80
+      ]
     }
   ],
   "connections": {

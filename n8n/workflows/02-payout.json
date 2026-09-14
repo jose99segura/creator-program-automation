@@ -18,7 +18,7 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        -880,
+        -1100,
         300
       ]
     },
@@ -33,7 +33,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        -660,
+        -880,
         300
       ],
       "credentials": {
@@ -52,7 +52,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -440,
+        -660,
         300
       ]
     },
@@ -69,7 +69,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        -220,
+        -440,
         300
       ],
       "credentials": {
@@ -92,7 +92,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        0,
+        -220,
         300
       ],
       "credentials": {
@@ -112,7 +112,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        220,
+        0,
         300
       ]
     },
@@ -146,7 +146,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        440,
+        220,
         300
       ]
     },
@@ -166,8 +166,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        660,
-        200
+        480,
+        160
       ],
       "onError": "continueRegularOutput"
     },
@@ -184,8 +184,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        660,
-        400
+        480,
+        480
       ],
       "credentials": {
         "postgres": {
@@ -210,10 +210,106 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        880,
-        400
+        700,
+        480
       ],
       "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## 02 payout · cómo leerlo\nSe ejecuta el **día 1 de cada mes a las 04:00** y calcula lo que se debe a cada creador **por el mes anterior**.\n\nSolo calcula y avisa: **no transfiere dinero**.\n\nEjemplo real: 104.600 visitas × 2,50 € por cada 1.000 = **261,50 €**.\n\nSe puede lanzar a mano sin miedo: repetirlo recalcula el mes, no paga dos veces.",
+        "width": 900,
+        "height": 340,
+        "color": 5
+      },
+      "id": "5a000000-0000-4000-8000-000000000201",
+      "name": "Nota: resumen",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1160,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 1 · Qué mes\n**Config** lee la tarifa y los límites.\n\n**Period** calcula el mes anterior, del día 1 al último (en hora UTC).",
+        "width": 620,
+        "height": 480,
+        "color": 7
+      },
+      "id": "5a000000-0000-4000-8000-000000000202",
+      "name": "Nota: 1 que mes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1160,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 2 · Calcular\n**Previous period total** mira cuánto salió el mes anterior, para compararlo después.\n\n**Recompute payouts** suma las visitas de los posts del mes y calcula el importe en **céntimos**:\n`visitas × tarifa ÷ 1.000`\n\nMenos de 1 € no se paga.",
+        "width": 400,
+        "height": 480,
+        "color": 6
+      },
+      "id": "5a000000-0000-4000-8000-000000000203",
+      "name": "Nota: 2 calcular",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -500,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 3 · Freno de seguridad\n**Sanity check** para el mes si el total:\n- supera 5.000 €, o\n- es más de 3 veces el del mes anterior\n\nAsí un dato raro de la plataforma no acaba en un pago enorme.\n\n**Within bounds?** elige el camino.",
+        "width": 400,
+        "height": 480,
+        "color": 7
+      },
+      "id": "5a000000-0000-4000-8000-000000000204",
+      "name": "Nota: 3 freno",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Todo normal\n**Report the total** avisa del total del mes.",
+        "width": 300,
+        "height": 260,
+        "color": 4
+      },
+      "id": "5a000000-0000-4000-8000-000000000205",
+      "name": "Nota: todo normal",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        420,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Retenido\n**Hold for review** lo apunta en «Fallos pendientes».\n\n**Alert the hold** avisa. Las cifras quedan guardadas para revisarlas.",
+        "width": 520,
+        "height": 300,
+        "color": 3
+      },
+      "id": "5a000000-0000-4000-8000-000000000206",
+      "name": "Nota: retenido",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        420,
+        360
+      ]
     }
   ],
   "connections": {

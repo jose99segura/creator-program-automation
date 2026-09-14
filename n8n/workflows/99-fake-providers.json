@@ -16,7 +16,6 @@
         -660,
         80
       ],
-      "notes": "Stands in for the application form export. This whole workflow is providers/platform.py and providers/mailer.py from the Python side: a source that exists so the failure path can be made to run on demand, rather than waiting for a real provider to have a bad day.",
       "webhookId": "d9000000-0000-4000-8000-00000000a001"
     },
     {
@@ -61,7 +60,6 @@
         -660,
         280
       ],
-      "notes": "The platform API. Called once per creator, with ?tracking_code=CP-xxxx.",
       "webhookId": "d9000000-0000-4000-8000-00000000a002"
     },
     {
@@ -126,8 +124,7 @@
       "position": [
         0,
         200
-      ],
-      "notes": "503 for a provider having a bad minute, 400 for a request that was wrong. The pipeline retries the first and must not retry the second."
+      ]
     },
     {
       "parameters": {
@@ -159,7 +156,6 @@
         -660,
         500
       ],
-      "notes": "Accepts the welcome email and does nothing with it. Deliberately reliable: the posts endpoint already exercises the retry path, and a second unreliable provider would only make it harder to tell which failure you are looking at.",
       "webhookId": "d9000000-0000-4000-8000-00000000a003"
     },
     {
@@ -205,8 +201,7 @@
         -660,
         700
       ],
-      "webhookId": "d9000000-0000-4000-8000-00000000a004",
-      "notes": "Stands in for Slack. It exists because an empty alert URL is not a quiet alert channel -- it is an HTTP node that throws 'Invalid URL' and takes the run down with it, which the first deployment demonstrated. An alerting path that can fail the work it was meant to report on is the worst possible bug in this repository, and this endpoint is how the demo keeps it honest."
+      "webhookId": "d9000000-0000-4000-8000-00000000a004"
     },
     {
       "parameters": {
@@ -234,6 +229,22 @@
       "position": [
         -220,
         700
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 99 fake providers · solo para la demo\nHace de **servicios externos falsos**, para que el programa funcione sin cuentas reales:\n- **Applications**: el formulario de solicitudes\n- **Posts**: la plataforma. Falla 1 de cada 4 veces **a propósito**, para que se vean los reintentos y los fallos\n- **Mail**: el email de bienvenida\n- **Alerts**: los avisos\n\n**Para usar servicios reales:** cambiar las URLs en la tabla `config` y desactivar este workflow.",
+        "width": 900,
+        "height": 340,
+        "color": 5
+      },
+      "id": "5a000000-0000-4000-8000-000000000901",
+      "name": "Nota: resumen",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
       ]
     }
   ],

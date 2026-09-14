@@ -14,6 +14,12 @@ workflows**, one Postgres database, and a page to watch it.
 In production the three URLs in `config` point at `99`. To go live, point
 them at real services and deactivate `99`.
 
+Each workflow explains itself on the n8n canvas: a blue summary note at the
+top, then one numbered note behind each group of nodes, with failure paths in
+red. The notes are in Spanish, like the dashboard, because they are read by
+the person operating it. A test checks that every node a note names in bold
+still exists.
+
 ## The dashboard
 
 `https://n8n.senaproject.online/webhook/creator-program/dashboard`, behind

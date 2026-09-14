@@ -18,8 +18,8 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        -880,
-        200
+        -1100,
+        160
       ]
     },
     {
@@ -29,8 +29,8 @@
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        -880,
-        400
+        -1100,
+        300
       ]
     },
     {
@@ -42,10 +42,9 @@
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        -880,
-        600
-      ],
-      "notes": "The 'Lanzar el pipeline' button in 04 dashboard."
+        -1100,
+        440
+      ]
     },
     {
       "parameters": {
@@ -58,7 +57,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        -660,
+        -860,
         300
       ],
       "credentials": {
@@ -80,7 +79,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -440,
+        -640,
         300
       ],
       "retryOnFail": true,
@@ -97,10 +96,9 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -220,
-        200
-      ],
-      "notes": "The whole ruleset. Thresholds live in the config table."
+        -420,
+        300
+      ]
     },
     {
       "parameters": {
@@ -132,8 +130,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        0,
-        200
+        -200,
+        300
       ]
     },
     {
@@ -149,8 +147,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        220,
-        100
+        20,
+        300
       ],
       "credentials": {
         "postgres": {
@@ -188,8 +186,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        440,
-        100
+        240,
+        300
       ]
     },
     {
@@ -205,8 +203,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        660,
-        0
+        460,
+        300
       ],
       "credentials": {
         "postgres": {
@@ -231,14 +229,13 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        880,
-        0
+        680,
+        300
       ],
       "retryOnFail": true,
       "maxTries": 4,
       "waitBetweenTries": 5000,
-      "onError": "continueErrorOutput",
-      "notes": "After the creator row exists, so a re-run only retries the email."
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -261,8 +258,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1100,
-        0
+        900,
+        300
       ],
       "retryOnFail": true,
       "maxTries": 4,
@@ -278,8 +275,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1320,
-        0
+        1120,
+        300
       ]
     },
     {
@@ -295,8 +292,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        1540,
-        0
+        1340,
+        300
       ],
       "credentials": {
         "postgres": {
@@ -318,16 +315,15 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        440,
-        500
+        240,
+        760
       ],
       "credentials": {
         "postgres": {
           "id": "creatorPgCred001",
           "name": "creator_prod postgres"
         }
-      },
-      "notes": "'invalid' = the data is wrong, fix it at the source. 'exhausted' = retried 4 times, run the pipeline again once the provider is back."
+      }
     },
     {
       "parameters": {
@@ -345,12 +341,123 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        660,
-        500
+        460,
+        760
       ],
       "executeOnce": true,
-      "onError": "continueRegularOutput",
-      "notes": "executeOnce: one message per run, not one per failed item."
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## 01 pipeline · cómo leerlo\nSe ejecuta **cada 6 horas**. Se lee de izquierda a derecha:\n\n1. **Arranque**: carga los ajustes de la tabla `config`\n2. **Leer y decidir**: descarga las solicitudes y aplica las reglas\n3. **Guardar**: guarda a todos los solicitantes\n4. **Dar de alta**: solo a los aceptados (ficha + email)\n5. **Posts**: trae sus posts y guarda las visitas\n\nAbajo, en rojo, lo que pasa **si algo falla**.\n\n**Probarlo:** botón *Execute workflow*. Ejecutarlo dos veces no duplica nada.",
+        "width": 900,
+        "height": 380,
+        "color": 5
+      },
+      "id": "5a000000-0000-4000-8000-000000000101",
+      "name": "Nota: resumen",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1160,
+        -360
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 1 · Arranque\nTres formas de lanzarlo: el reloj (cada 6 h), a mano, o el botón del dashboard.\n\n**Config** lee la tabla `config`: umbrales, tarifa y URLs.\n\nPara cambiar un ajuste se edita esa tabla, no el workflow.",
+        "width": 400,
+        "height": 520,
+        "color": 7
+      },
+      "id": "5a000000-0000-4000-8000-000000000102",
+      "name": "Nota: 1 arranque",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1160,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 2 · Leer y decidir\n**Fetch applications** descarga las solicitudes nuevas. Si falla, reintenta 4 veces.\n\n**Screen applicants** tiene todas las reglas:\n- plataforma: YouTube, TikTok o Instagram\n- menos de 5.000 seguidores → rechazada\n- de 5.000 a 19.999 → a revisión\n- 20.000 o más → aceptada\n\n**Valid?** manda abajo, a fallos, las solicitudes mal escritas (email, plataforma…).",
+        "width": 620,
+        "height": 520,
+        "color": 6
+      },
+      "id": "5a000000-0000-4000-8000-000000000103",
+      "name": "Nota: 2 leer y decidir",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -700,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 3 · Guardar\n**Store applicant** guarda a todos, también a los rechazados.\n\nSi ya existía **no cambia su estado**: si alguien aceptó a mano a uno «a revisión», se respeta.\n\n**Accepted?** deja pasar solo a los aceptados. El resto termina aquí.",
+        "width": 400,
+        "height": 520,
+        "color": 7
+      },
+      "id": "5a000000-0000-4000-8000-000000000104",
+      "name": "Nota: 3 guardar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 4 · Dar de alta\n**Create creator** crea la ficha con un código de seguimiento, p. ej. `CP-9E0945B087C1DAD7`. Para la misma solicitud el código sale siempre igual.\n\n**Send welcome email** le manda el código. Va después de crear la ficha: un reintento nunca da la bienvenida a alguien que no está guardado.",
+        "width": 400,
+        "height": 520,
+        "color": 6
+      },
+      "id": "5a000000-0000-4000-8000-000000000105",
+      "name": "Nota: 4 dar de alta",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        400,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 5 · Posts y visitas\n**Fetch posts** pide a la plataforma los posts que llevan ese código.\n\n**One item per post** los separa uno a uno.\n\n**Upsert posts** los guarda. Si el post ya existía solo actualiza sus visitas: el mismo post nunca cuenta dos veces.",
+        "width": 620,
+        "height": 520,
+        "color": 7
+      },
+      "id": "5a000000-0000-4000-8000-000000000106",
+      "name": "Nota: 5 posts",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        840,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Si algo falla\n**Dead letter** guarda el caso en la tabla `dead_letters`. En el dashboard sale en «Fallos pendientes».\n- `invalid`: datos mal escritos → corregir en el formulario\n- `exhausted`: un servicio no respondió tras 4 intentos → volver a lanzar\n\n**Alert** manda **un solo** aviso por ejecución, aunque fallen muchos.",
+        "width": 560,
+        "height": 360,
+        "color": 3
+      },
+      "id": "5a000000-0000-4000-8000-000000000107",
+      "name": "Nota: si algo falla",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        160,
+        640
+      ]
     }
   ],
   "connections": {
