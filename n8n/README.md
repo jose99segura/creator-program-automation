@@ -9,6 +9,10 @@ workflows**, one Postgres database, and a page to watch it.
 | `02 payout` | 1st of the month, 04:00 | works out what each creator is owed for last month |
 | `03 errors` | whenever another workflow crashes | records the failure and sends an alert |
 | `04 dashboard` | when you open it | the page below; it does no work of its own |
+| `99 fake providers (demo)` | when called | stand-ins for the application form, platform API, mailer and alert channel, so the demo runs with no external accounts. The platform endpoint fails a quarter of its calls on purpose, so retries and dead letters really happen |
+
+In production the three URLs in `config` point at `99`. To go live, point
+them at real services and deactivate `99`.
 
 ## The dashboard
 

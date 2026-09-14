@@ -59,7 +59,8 @@ def strip_comments(code: str) -> str:
 
 def test_the_expected_workflows_exist() -> None:
     """A glob that silently matches nothing would turn every test below green."""
-    assert [p.stem for p in WORKFLOWS] == ["01-pipeline", "02-payout", "03-errors", "04-dashboard"]
+    assert [p.stem for p in WORKFLOWS] == [
+        "01-pipeline", "02-payout", "03-errors", "04-dashboard", "99-fake-providers"]
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
