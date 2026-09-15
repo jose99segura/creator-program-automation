@@ -213,7 +213,11 @@ def _load_build():
     return module
 
 
-PAGES = [("04-dashboard", DASHBOARD_DIR / "page.html"), ("05-prep", N8N_DIR / "prep" / "page.html")]
+PAGES = [
+    ("04-dashboard", DASHBOARD_DIR / "page.html"),
+    ("05-prep", N8N_DIR / "prep" / "page.html"),
+    ("99-fake-providers", N8N_DIR / "fake" / "page.html"),
+]
 
 
 @pytest.mark.parametrize("stem,page_path", PAGES, ids=[p[0] for p in PAGES])
@@ -267,6 +271,35 @@ def test_prep_actions_are_behind_auth_and_a_token() -> None:
     assert "dashboard_action_token" in json.dumps(node(wf, "Token matches?"))
     assert wf["connections"]["Prep action"]["main"][0][0]["node"] == "Config"
     assert wf["connections"]["Config"]["main"][0][0]["node"] == "Token matches?"
+
+
+def test_fake_admin_actions_are_behind_auth_and_a_token() -> None:
+    wf = workflow("99-fake-providers")
+    hooks = [n for n in wf["nodes"]
+             if n["type"] == "n8n-nodes-base.webhook" and "admin" in n["parameters"].get("path", "")]
+    assert len(hooks) == 2, "expected the admin page and its action webhook"
+    for hook in hooks:
+        assert hook["parameters"].get("authentication") == "basicAuth", hook["name"]
+        assert "httpBasicAuth" in hook.get("credentials", {}), hook["name"]
+    assert "dashboard_action_token" in json.dumps(node(wf, "Token matches?"))
+
+
+def test_fake_applicants_are_upserted_not_duplicated() -> None:
+    """Editing an existing id from the admin page must update it, not add a row."""
+    query = node(workflow("99-fake-providers"), "Upsert applicant")["parameters"]["query"]
+    assert "ON CONFLICT (external_id) DO UPDATE" in query
+
+
+def test_applications_endpoint_reads_the_fake_applicants_table() -> None:
+    """The demo feed comes from a table now, not a hardcoded array in the workflow."""
+    wf = workflow("99-fake-providers")
+    query = node(wf, "Read fake applicants")["parameters"]["query"]
+    assert "FROM fake_applicants" in query
+
+
+def test_deploy_ships_the_fake_applicants_table() -> None:
+    deploy = (N8N_DIR / "deploy.sh").read_text(encoding="utf-8")
+    assert "04-fake-applicants.sql" in deploy
 
 
 def test_the_api_key_lives_in_a_credential() -> None:

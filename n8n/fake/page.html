@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Solicitantes falsos</title>
+<style>
+:root{
+  --bg:#f6f6f3;--surface:#fff;--line:#e8e7e2;--line-2:#d8d7d0;
+  --text:#191917;--muted:#6b6a64;--faint:#9a9992;
+  --accent:#4338ca;--accent-soft:#eef0ff;--on-accent:#fff;
+  --bad:#b91c1c;--bad-soft:#fdeded;
+  --r:14px;--mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#111110;--surface:#1a1a18;--line:#292926;--line-2:#363632;
+  --text:#ecebe6;--muted:#a3a29b;--faint:#74736d;
+  --accent:#a5b4fc;--accent-soft:#222540;--on-accent:#111110;
+  --bad:#f87171;--bad-soft:#2c1717;
+}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--bg);color:var(--text)}
+body{font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:900px;margin:0 auto;padding:28px 24px 48px}
+h1{margin:0;font-size:20px;font-weight:600;letter-spacing:-.01em}
+h2{margin:0 0 4px;font-size:16px;font-weight:600}
+p{margin:0}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.sub{margin:6px 0 24px;color:var(--muted);font-size:14px;max-width:640px}
+.flash{border-radius:12px;padding:11px 14px;margin:0 0 18px;font-size:14px;background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 25%,transparent)}
+.flash.bad{background:var(--bad-soft);border-color:color-mix(in srgb,var(--bad) 30%,transparent)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;margin-bottom:22px}
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:12px;font-weight:500;color:var(--muted);padding:0 8px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+th.r,td.r{text-align:right}
+code{font-family:var(--mono);font-size:12.5px}
+.empty{color:var(--muted);font-size:14px}
+.actions{display:flex;gap:6px}
+.btn{font:inherit;font-size:13px;font-weight:500;border-radius:8px;padding:5px 10px;border:1px solid var(--line-2);background:var(--surface);color:var(--text);cursor:pointer}
+.btn:hover{border-color:var(--faint)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--line-2))}
+.inline{display:inline;margin:0}
+form.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;align-items:end}
+label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:4px}
+input{width:100%;font:inherit;font-size:14px;padding:7px 9px;border-radius:8px;border:1px solid var(--line-2);background:var(--bg);color:var(--text)}
+.formfoot{grid-column:1/-1;display:flex;gap:8px;align-items:center;margin-top:2px}
+.foot{margin-top:22px;font-size:12.5px;color:var(--faint)}
+.foot a{color:inherit}
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+
+  <h1>Solicitantes falsos</h1>
+  <p class="sub">Los datos que <b>99 fake providers</b> devuelve como si vinieran del formulario de
+  solicitudes. Cámbialos aquí para probar casos distintos; no hace falta tocar el workflow.
+  Para ver la platforma «real» de prueba, abre
+  <code>/webhook/creator-program/fake/applications</code>.</p>
+
+  <div class="flash" id="flash" role="status" hidden></div>
+  <div class="flash" id="sample" hidden>Vista previa con datos inventados. Abierta desde n8n, esta página edita los de verdad.</div>
+
+  <div class="card tablewrap">
+    <h2>Los ocho de la demo</h2>
+    <p class="sub" id="rows-empty" hidden>Ninguno todavía. Añade el primero abajo.</p>
+    <table id="rows-table" hidden>
+      <thead><tr>
+        <th>Id</th><th>Email</th><th>Handle</th><th>Plataforma</th><th class="r">Seguidores</th><th></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2 id="form-title">Añadir uno nuevo</h2>
+    <p class="sub" id="form-sub">Si el id ya existe, se actualiza en vez de duplicarse.</p>
+    <form method="post" action="/webhook/creator-program/fake/admin/action" id="save-form" class="grid">
+      <input type="hidden" name="action" value="save">
+      <input type="hidden" name="token" id="save-token">
+      <div><label for="f-id">Id</label><input id="f-id" name="external_id" required placeholder="demo-09"></div>
+      <div><label for="f-email">Email</label><input id="f-email" name="email" required placeholder="ana@example.com"></div>
+      <div><label for="f-handle">Handle</label><input id="f-handle" name="handle" required placeholder="anacooks"></div>
+      <div><label for="f-platform">Plataforma</label><input id="f-platform" name="platform" required placeholder="youtube"></div>
+      <div><label for="f-followers">Seguidores</label><input id="f-followers" name="followers" type="number" min="0" required placeholder="20000"></div>
+      <div class="formfoot">
+        <button type="submit" class="btn primary" id="save-btn">Guardar</button>
+        <button type="button" class="btn" id="cancel-btn" hidden>Cancelar edición</button>
+      </div>
+    </form>
+  </div>
+
+  <p class="foot"><a href="/webhook/creator-program/dashboard">← Volver al dashboard</a></p>
+</div>
+
+<script>const STATE = /*__STATE__*/null;</script>
+<script>
+(function () {
+  'use strict';
+
+  // Same shape as the dashboard: the state is embedded by n8n when it
+  // renders the page, actions are plain form posts, and nothing here uses
+  // innerHTML because handles and emails come from outside.
+
+  var S = STATE || sample();
+  var isSample = !STATE;
+
+  function h(tag, props) {
+    var e = document.createElement(tag);
+    props = props || {};
+    Object.keys(props).forEach(function (k) {
+      var v = props[k];
+      if (v == null) return;
+      if (k === 'text') e.textContent = String(v);
+      else if (k === 'class') e.className = v;
+      else e.setAttribute(k, String(v));
+    });
+    for (var i = 2; i < arguments.length; i++) {
+      var c = arguments[i];
+      if (c == null || c === false) continue;
+      e.appendChild(typeof c === 'object' ? c : document.createTextNode(String(c)));
+    }
+    return e;
+  }
+
+  function deleteForm(id) {
+    var f = h('form', { method: 'post', action: '/webhook/creator-program/fake/admin/action', class: 'inline' });
+    f.appendChild(h('input', { type: 'hidden', name: 'action', value: 'delete' }));
+    f.appendChild(h('input', { type: 'hidden', name: 'token', value: S.action_token || '' }));
+    f.appendChild(h('input', { type: 'hidden', name: 'external_id', value: id }));
+    var b = h('button', { type: 'submit', class: 'btn bad', text: 'Borrar' });
+    if (isSample) { b.disabled = true; b.title = 'No disponible en la vista previa'; }
+    f.addEventListener('submit', function (e) {
+      if (!confirm('¿Borrar ' + id + '?')) e.preventDefault();
+    });
+    f.appendChild(b);
+    return f;
+  }
+
+  function renderRows() {
+    var rows = S.applicants || [];
+    document.getElementById('rows-empty').hidden = rows.length > 0;
+    document.getElementById('rows-table').hidden = rows.length === 0;
+    var tbody = document.getElementById('rows');
+    tbody.textContent = '';
+    rows.forEach(function (a) {
+      var editBtn = h('button', { type: 'button', class: 'btn' }, 'Editar');
+      editBtn.addEventListener('click', function () { fillForm(a); });
+      tbody.appendChild(h('tr', {},
+        h('td', {}, h('code', { text: a.external_id })),
+        h('td', { text: a.email }),
+        h('td', { text: a.handle }),
+        h('td', { text: a.platform }),
+        h('td', { class: 'r', text: a.followers }),
+        h('td', {}, h('div', { class: 'actions' }, editBtn, deleteForm(a.external_id)))));
+    });
+  }
+
+  function fillForm(a) {
+    document.getElementById('form-title').textContent = 'Editando ' + a.external_id;
+    document.getElementById('form-sub').textContent = 'Guardar actualiza este mismo id.';
+    document.getElementById('f-id').value = a.external_id;
+    document.getElementById('f-id').readOnly = true;
+    document.getElementById('f-email').value = a.email;
+    document.getElementById('f-handle').value = a.handle;
+    document.getElementById('f-platform').value = a.platform;
+    document.getElementById('f-followers').value = a.followers;
+    document.getElementById('cancel-btn').hidden = false;
+    document.getElementById('save-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function resetForm() {
+    document.getElementById('form-title').textContent = 'Añadir uno nuevo';
+    document.getElementById('form-sub').textContent = 'Si el id ya existe, se actualiza en vez de duplicarse.';
+    document.getElementById('save-form').reset();
+    document.getElementById('f-id').readOnly = false;
+    document.getElementById('save-token').value = S.action_token || '';
+    document.getElementById('cancel-btn').hidden = true;
+  }
+
+  document.getElementById('cancel-btn').addEventListener('click', resetForm);
+  document.getElementById('save-form').addEventListener('submit', function () {
+    if (isSample) return;
+  });
+
+  var FLASH = {
+    save: ['Guardado.', ''],
+    delete: ['Borrado.', ''],
+    denied: ['Acción rechazada: el token no coincide. Recarga la página y vuelve a intentarlo.', 'bad']
+  };
+
+  function renderFlash() {
+    var hp = new URLSearchParams(location.hash.slice(1));
+    var f = FLASH[hp.get('f')];
+    if (!f) return;
+    var el = document.getElementById('flash');
+    el.textContent = f[0];
+    if (f[1]) el.classList.add(f[1]);
+    el.hidden = false;
+  }
+
+  function sample() {
+    return {
+      action_token: '',
+      applicants: [
+        { external_id: 'demo-01', email: 'ana@example.com', handle: 'anacooks', platform: 'youtube', followers: 142000 },
+        { external_id: 'demo-05', email: 'kim@example.com', handle: 'kimknits', platform: 'instagram', followers: 8200 }
+      ]
+    };
+  }
+
+  document.getElementById('sample').hidden = !isSample;
+  document.getElementById('save-token').value = S.action_token || '';
+  renderRows();
+  renderFlash();
+})();
+</script>
+</body>
+</html>

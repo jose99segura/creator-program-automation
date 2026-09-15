@@ -60,7 +60,7 @@ fi
 
 say "schema and config"
 # As the app role, so it owns every table it creates.
-for f in 01-schema.sql 02-config.sql 03-prep.sql; do
+for f in 01-schema.sql 02-config.sql 03-prep.sql 04-fake-applicants.sql; do
   echo "-- $f"
   docker exec -i -e PGPASSWORD="$CREATOR_DB_PASSWORD" "$PG_CONTAINER" \
     psql -v ON_ERROR_STOP=1 -U "$DB_ROLE" -d "$DB_NAME" < "$HERE/sql/$f"

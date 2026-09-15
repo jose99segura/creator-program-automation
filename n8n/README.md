@@ -11,6 +11,7 @@ workflows**, one Postgres database, and a page to watch it.
 | `04 dashboard` | when you open it | the page below; it does no work of its own |
 | `05 prep` | when you open it | interview practice: theory, a speaking framework, and a simulator that calls Claude |
 | `99 fake providers (demo)` | when called | stand-ins for the application form, platform API, mailer and alert channel, so the demo runs with no external accounts. The platform endpoint fails a quarter of its calls on purpose, so retries and dead letters really happen |
+| ↳ its admin page | when you open it | add, edit or remove the fake applicants it serves |
 
 In production the three URLs in `config` point at `99`. To go live, point
 them at real services and deactivate `99`.
@@ -72,6 +73,21 @@ It needs one more credential, created by hand: **Header Auth**, id
 `creatorLlmCred01`, name `anthropic api key`, header `x-api-key`. The model is
 the `prep_model` row in `config`. To change the page, edit `prep/page.html`
 and run the same `python n8n/dashboard/build.py`.
+
+## Fake applicants
+
+`https://n8n.senaproject.online/webhook/creator-program/fake/admin`, same
+login as the dashboard. The eight demo applicants that
+`/webhook/creator-program/fake/applications` serves live in the
+`fake_applicants` table instead of being hardcoded in `99`'s workflow. This
+page adds, edits and deletes them: the same form saves a new one or updates
+an existing id, and each row has its own delete button. Nothing here needs
+`gh` or a redeploy — the next poll of `01 pipeline` picks up the change.
+
+Use it to try a case the eight defaults don't cover, e.g. an unsupported
+platform or a malformed email, to see the `invalid` path in "Fallos
+pendientes". To change the page itself, edit `fake/page.html` and run the
+same `python n8n/dashboard/build.py`.
 
 ```
   every 6h ─► 01 pipeline ─► submissions, creators, posts ─► 02 payout (monthly) ─► payouts
@@ -138,8 +154,9 @@ UPDATE config SET value = '8000', updated_at = now() WHERE key = 'min_followers'
 ```
 
 The credentials are `creator_prod postgres` (id `creatorPgCred001`), the
-dashboard login (`creatorDashAuth01`), and for `05 prep` only, `anthropic api
-key` (`creatorLlmCred01`).
+dashboard login (`creatorDashAuth01`, also used by `05 prep` and the fake
+applicants admin page), and for `05 prep` only, `anthropic api key`
+(`creatorLlmCred01`).
 
 ## Dealing with failures
 

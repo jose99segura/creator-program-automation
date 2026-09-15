@@ -20,21 +20,29 @@
     },
     {
       "parameters": {
-        "jsCode": "// Eight applications, chosen so that one poll exercises every screening\n// outcome: 3 accepted, 3 review, 2 rejected.\n//\n// There are no malformed ones on purpose. They would be dead lettered again\n// on every poll and keep the dashboard's pending failures from ever clearing.\n// Failures still happen: the platform endpoint fails a quarter of its calls,\n// which exercises retries and 'exhausted' dead letters. To see the 'invalid'\n// path, add an applicant with a bad email or an unsupported platform here.\nconst batch = [\n  { external_id: 'demo-01', email: 'ana@example.com',   handle: 'anacooks',   platform: 'youtube',   followers: 142000 },\n  { external_id: 'demo-02', email: 'ben@example.com',   handle: '@benbuilds', platform: 'TikTok',    followers: 88000  },\n  { external_id: 'demo-03', email: 'cara@example.com',  handle: 'caradraws',  platform: ' instagram ', followers: 51000 },\n  { external_id: 'demo-04', email: 'jack@example.com',  handle: 'jackjams',   platform: 'tiktok',    followers: 12000  },\n  { external_id: 'demo-05', email: 'kim@example.com',   handle: 'kimknits',   platform: 'instagram', followers: 8200   },\n  { external_id: 'demo-06', email: 'nia@example.com',   handle: 'niaknows',   platform: 'youtube',   followers: 15750  },\n  { external_id: 'demo-07', email: 'quin@example.com',  handle: 'quinquilts', platform: 'tiktok',    followers: 1200   },\n  { external_id: 'demo-08', email: 'rosa@example.com',  handle: 'rosaruns',   platform: 'instagram', followers: 84     },\n];\n\n// demo-02, 03 also check normalisation on the way in: a leading @, a capital\n// letter and stray whitespace must all survive as the same person.\nreturn [{ json: { data: batch, generated_at: new Date().toISOString() } }];"
+        "operation": "executeQuery",
+        "query": "-- Editable from /webhook/creator-program/fake/admin instead of this\n-- workflow's code. See \"Nota: administrar\".\nSELECT jsonb_build_object(\n  'data', COALESCE(jsonb_agg(jsonb_build_object(\n      'external_id', external_id, 'email', email, 'handle', handle,\n      'platform', platform, 'followers', followers\n    ) ORDER BY created_at), '[]'::jsonb),\n  'generated_at', now()\n) AS json\nFROM fake_applicants;",
+        "options": {}
       },
-      "id": "a9000000-0000-4000-8000-000000000002",
-      "name": "Make applications",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "id": "a9000000-0000-4000-8000-00000000000f",
+      "name": "Read fake applicants",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
       "position": [
         -440,
         80
-      ]
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify($json) }}",
+        "responseBody": "={{ JSON.stringify($json.json) }}",
         "options": {}
       },
       "id": "a9000000-0000-4000-8000-000000000003",
@@ -233,7 +241,7 @@
     },
     {
       "parameters": {
-        "content": "## 99 fake providers · solo para la demo\nHace de **servicios externos falsos**, para que el programa funcione sin cuentas reales:\n- **Applications**: el formulario de solicitudes\n- **Posts**: la plataforma. Falla 1 de cada 4 veces **a propósito**, para que se vean los reintentos y los fallos\n- **Mail**: el email de bienvenida\n- **Alerts**: los avisos\n\n**Para usar servicios reales:** cambiar las URLs en la tabla `config` y desactivar este workflow.",
+        "content": "## 99 fake providers · solo para la demo\nHace de **servicios externos falsos**, para que el programa funcione sin cuentas reales:\n- **Applications**: el formulario de solicitudes, ahora editable desde una página propia\n  (ver **Nota: administrar**), no desde el código\n- **Posts**: la plataforma. Falla 1 de cada 4 veces **a propósito**, para que se vean los reintentos y los fallos\n- **Mail**: el email de bienvenida\n- **Alerts**: los avisos\n\n**Para usar servicios reales:** cambiar las URLs en la tabla `config` y desactivar este workflow.",
         "width": 900,
         "height": 340,
         "color": 5
@@ -249,7 +257,7 @@
     },
     {
       "parameters": {
-        "content": "## Cómo probarlo\nNo se ejecuta solo: lo llaman **01**, **02** y **03**. Tiene que estar **activo**, o esos workflows fallan.\n\nPara ver que responde, abre en el navegador:\n`https://n8n.senaproject.online/webhook/creator-program/fake/applications`\nDebe devolver 8 solicitantes de prueba.\n\nPara ver lo que «recibió» (emails, avisos, posts): pestaña *Executions* de este workflow, abre una y mira el último nodo.",
+        "content": "## Cómo probarlo\nNo se ejecuta solo: lo llaman **01**, **02** y **03**. Tiene que estar **activo**, o esos workflows fallan.\n\nPara ver que responde, abre en el navegador:\n`https://n8n.senaproject.online/webhook/creator-program/fake/applications`\nDebe devolver los solicitantes de la tabla `fake_applicants`.\n\nPara cambiar quién aparece ahí (añadir uno raro, editar seguidores, borrar uno), usa\n`https://n8n.senaproject.online/webhook/creator-program/fake/admin` en vez de tocar el workflow.\n\nPara ver lo que «recibió» (emails, avisos, posts): pestaña *Executions* de este workflow, abre una y mira el último nodo.",
         "height": 340,
         "width": 620,
         "color": 4
@@ -262,6 +270,359 @@
         220,
         -300
       ]
+    },
+    {
+      "parameters": {
+        "path": "creator-program/fake/admin",
+        "authentication": "basicAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a9000000-0000-4000-8000-000000000010",
+      "name": "Fake admin page",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        900,
+        80
+      ],
+      "webhookId": "d9000000-0000-4000-8000-00000000a005",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "creatorDashAuth01",
+          "name": "creator dashboard login"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT jsonb_build_object(\n  'generated_at', now(),\n  'action_token', (SELECT value FROM config WHERE key = 'dashboard_action_token'),\n  'applicants', COALESCE((SELECT jsonb_agg(jsonb_build_object(\n      'external_id', external_id, 'email', email, 'handle', handle,\n      'platform', platform, 'followers', followers\n    ) ORDER BY created_at) FROM fake_applicants), '[]'::jsonb)\n) AS state;",
+        "options": {}
+      },
+      "id": "a9000000-0000-4000-8000-000000000011",
+      "name": "Read applicants",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1120,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Put the live state into the page and return it as HTML.\n//\n// Generated by n8n/dashboard/build.py from n8n/dashboard/page.html. Edit the\n// page and rebuild; do not edit the template string by hand.\n//\n// The JSON is escaped for a <script> element, because handles and error\n// messages come from outside and \"</script>\" in one would end the block.\n// The replacement is a function, because a replacement string would read\n// \"$'\" inside the data as a pattern.\n\nconst TEMPLATE = \"<!doctype html>\\n<html lang=\\\"es\\\">\\n<head>\\n<meta charset=\\\"utf-8\\\">\\n<meta name=\\\"viewport\\\" content=\\\"width=device-width,initial-scale=1\\\">\\n<meta name=\\\"robots\\\" content=\\\"noindex,nofollow\\\">\\n<title>Solicitantes falsos</title>\\n<style>\\n:root{\\n  --bg:#f6f6f3;--surface:#fff;--line:#e8e7e2;--line-2:#d8d7d0;\\n  --text:#191917;--muted:#6b6a64;--faint:#9a9992;\\n  --accent:#4338ca;--accent-soft:#eef0ff;--on-accent:#fff;\\n  --bad:#b91c1c;--bad-soft:#fdeded;\\n  --r:14px;--mono:ui-monospace,\\\"SF Mono\\\",\\\"Cascadia Mono\\\",Consolas,monospace;\\n}\\n@media (prefers-color-scheme:dark){:root{\\n  --bg:#111110;--surface:#1a1a18;--line:#292926;--line-2:#363632;\\n  --text:#ecebe6;--muted:#a3a29b;--faint:#74736d;\\n  --accent:#a5b4fc;--accent-soft:#222540;--on-accent:#111110;\\n  --bad:#f87171;--bad-soft:#2c1717;\\n}}\\n*{box-sizing:border-box}\\n[hidden]{display:none!important}\\nhtml,body{margin:0;background:var(--bg);color:var(--text)}\\nbody{font:15px/1.55 ui-sans-serif,system-ui,-apple-system,\\\"Segoe UI\\\",Inter,Roboto,sans-serif;-webkit-font-smoothing:antialiased}\\n.wrap{max-width:900px;margin:0 auto;padding:28px 24px 48px}\\nh1{margin:0;font-size:20px;font-weight:600;letter-spacing:-.01em}\\nh2{margin:0 0 4px;font-size:16px;font-weight:600}\\np{margin:0}\\na{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}\\n.sub{margin:6px 0 24px;color:var(--muted);font-size:14px;max-width:640px}\\n.flash{border-radius:12px;padding:11px 14px;margin:0 0 18px;font-size:14px;background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 25%,transparent)}\\n.flash.bad{background:var(--bad-soft);border-color:color-mix(in srgb,var(--bad) 30%,transparent)}\\n.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;margin-bottom:22px}\\n.tablewrap{overflow-x:auto}\\ntable{width:100%;border-collapse:collapse;font-size:14px}\\nth{text-align:left;font-size:12px;font-weight:500;color:var(--muted);padding:0 8px 8px;border-bottom:1px solid var(--line);white-space:nowrap}\\ntd{padding:9px 8px;border-bottom:1px solid var(--line);white-space:nowrap}\\ntr:last-child td{border-bottom:0}\\nth.r,td.r{text-align:right}\\ncode{font-family:var(--mono);font-size:12.5px}\\n.empty{color:var(--muted);font-size:14px}\\n.actions{display:flex;gap:6px}\\n.btn{font:inherit;font-size:13px;font-weight:500;border-radius:8px;padding:5px 10px;border:1px solid var(--line-2);background:var(--surface);color:var(--text);cursor:pointer}\\n.btn:hover{border-color:var(--faint)}\\n.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}\\n.btn.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--line-2))}\\n.inline{display:inline;margin:0}\\nform.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;align-items:end}\\nlabel{display:block;font-size:12.5px;color:var(--muted);margin-bottom:4px}\\ninput{width:100%;font:inherit;font-size:14px;padding:7px 9px;border-radius:8px;border:1px solid var(--line-2);background:var(--bg);color:var(--text)}\\n.formfoot{grid-column:1/-1;display:flex;gap:8px;align-items:center;margin-top:2px}\\n.foot{margin-top:22px;font-size:12.5px;color:var(--faint)}\\n.foot a{color:inherit}\\n</style>\\n</head>\\n<body>\\n<div class=\\\"wrap\\\" id=\\\"wrap\\\">\\n\\n  <h1>Solicitantes falsos</h1>\\n  <p class=\\\"sub\\\">Los datos que <b>99 fake providers</b> devuelve como si vinieran del formulario de\\n  solicitudes. Cámbialos aquí para probar casos distintos; no hace falta tocar el workflow.\\n  Para ver la platforma «real» de prueba, abre\\n  <code>/webhook/creator-program/fake/applications</code>.</p>\\n\\n  <div class=\\\"flash\\\" id=\\\"flash\\\" role=\\\"status\\\" hidden></div>\\n  <div class=\\\"flash\\\" id=\\\"sample\\\" hidden>Vista previa con datos inventados. Abierta desde n8n, esta página edita los de verdad.</div>\\n\\n  <div class=\\\"card tablewrap\\\">\\n    <h2>Los ocho de la demo</h2>\\n    <p class=\\\"sub\\\" id=\\\"rows-empty\\\" hidden>Ninguno todavía. Añade el primero abajo.</p>\\n    <table id=\\\"rows-table\\\" hidden>\\n      <thead><tr>\\n        <th>Id</th><th>Email</th><th>Handle</th><th>Plataforma</th><th class=\\\"r\\\">Seguidores</th><th></th>\\n      </tr></thead>\\n      <tbody id=\\\"rows\\\"></tbody>\\n    </table>\\n  </div>\\n\\n  <div class=\\\"card\\\">\\n    <h2 id=\\\"form-title\\\">Añadir uno nuevo</h2>\\n    <p class=\\\"sub\\\" id=\\\"form-sub\\\">Si el id ya existe, se actualiza en vez de duplicarse.</p>\\n    <form method=\\\"post\\\" action=\\\"/webhook/creator-program/fake/admin/action\\\" id=\\\"save-form\\\" class=\\\"grid\\\">\\n      <input type=\\\"hidden\\\" name=\\\"action\\\" value=\\\"save\\\">\\n      <input type=\\\"hidden\\\" name=\\\"token\\\" id=\\\"save-token\\\">\\n      <div><label for=\\\"f-id\\\">Id</label><input id=\\\"f-id\\\" name=\\\"external_id\\\" required placeholder=\\\"demo-09\\\"></div>\\n      <div><label for=\\\"f-email\\\">Email</label><input id=\\\"f-email\\\" name=\\\"email\\\" required placeholder=\\\"ana@example.com\\\"></div>\\n      <div><label for=\\\"f-handle\\\">Handle</label><input id=\\\"f-handle\\\" name=\\\"handle\\\" required placeholder=\\\"anacooks\\\"></div>\\n      <div><label for=\\\"f-platform\\\">Plataforma</label><input id=\\\"f-platform\\\" name=\\\"platform\\\" required placeholder=\\\"youtube\\\"></div>\\n      <div><label for=\\\"f-followers\\\">Seguidores</label><input id=\\\"f-followers\\\" name=\\\"followers\\\" type=\\\"number\\\" min=\\\"0\\\" required placeholder=\\\"20000\\\"></div>\\n      <div class=\\\"formfoot\\\">\\n        <button type=\\\"submit\\\" class=\\\"btn primary\\\" id=\\\"save-btn\\\">Guardar</button>\\n        <button type=\\\"button\\\" class=\\\"btn\\\" id=\\\"cancel-btn\\\" hidden>Cancelar edición</button>\\n      </div>\\n    </form>\\n  </div>\\n\\n  <p class=\\\"foot\\\"><a href=\\\"/webhook/creator-program/dashboard\\\">← Volver al dashboard</a></p>\\n</div>\\n\\n<script>const STATE = /*__STATE__*/null;</script>\\n<script>\\n(function () {\\n  'use strict';\\n\\n  // Same shape as the dashboard: the state is embedded by n8n when it\\n  // renders the page, actions are plain form posts, and nothing here uses\\n  // innerHTML because handles and emails come from outside.\\n\\n  var S = STATE || sample();\\n  var isSample = !STATE;\\n\\n  function h(tag, props) {\\n    var e = document.createElement(tag);\\n    props = props || {};\\n    Object.keys(props).forEach(function (k) {\\n      var v = props[k];\\n      if (v == null) return;\\n      if (k === 'text') e.textContent = String(v);\\n      else if (k === 'class') e.className = v;\\n      else e.setAttribute(k, String(v));\\n    });\\n    for (var i = 2; i < arguments.length; i++) {\\n      var c = arguments[i];\\n      if (c == null || c === false) continue;\\n      e.appendChild(typeof c === 'object' ? c : document.createTextNode(String(c)));\\n    }\\n    return e;\\n  }\\n\\n  function deleteForm(id) {\\n    var f = h('form', { method: 'post', action: '/webhook/creator-program/fake/admin/action', class: 'inline' });\\n    f.appendChild(h('input', { type: 'hidden', name: 'action', value: 'delete' }));\\n    f.appendChild(h('input', { type: 'hidden', name: 'token', value: S.action_token || '' }));\\n    f.appendChild(h('input', { type: 'hidden', name: 'external_id', value: id }));\\n    var b = h('button', { type: 'submit', class: 'btn bad', text: 'Borrar' });\\n    if (isSample) { b.disabled = true; b.title = 'No disponible en la vista previa'; }\\n    f.addEventListener('submit', function (e) {\\n      if (!confirm('¿Borrar ' + id + '?')) e.preventDefault();\\n    });\\n    f.appendChild(b);\\n    return f;\\n  }\\n\\n  function renderRows() {\\n    var rows = S.applicants || [];\\n    document.getElementById('rows-empty').hidden = rows.length > 0;\\n    document.getElementById('rows-table').hidden = rows.length === 0;\\n    var tbody = document.getElementById('rows');\\n    tbody.textContent = '';\\n    rows.forEach(function (a) {\\n      var editBtn = h('button', { type: 'button', class: 'btn' }, 'Editar');\\n      editBtn.addEventListener('click', function () { fillForm(a); });\\n      tbody.appendChild(h('tr', {},\\n        h('td', {}, h('code', { text: a.external_id })),\\n        h('td', { text: a.email }),\\n        h('td', { text: a.handle }),\\n        h('td', { text: a.platform }),\\n        h('td', { class: 'r', text: a.followers }),\\n        h('td', {}, h('div', { class: 'actions' }, editBtn, deleteForm(a.external_id)))));\\n    });\\n  }\\n\\n  function fillForm(a) {\\n    document.getElementById('form-title').textContent = 'Editando ' + a.external_id;\\n    document.getElementById('form-sub').textContent = 'Guardar actualiza este mismo id.';\\n    document.getElementById('f-id').value = a.external_id;\\n    document.getElementById('f-id').readOnly = true;\\n    document.getElementById('f-email').value = a.email;\\n    document.getElementById('f-handle').value = a.handle;\\n    document.getElementById('f-platform').value = a.platform;\\n    document.getElementById('f-followers').value = a.followers;\\n    document.getElementById('cancel-btn').hidden = false;\\n    document.getElementById('save-form').scrollIntoView({ behavior: 'smooth', block: 'center' });\\n  }\\n\\n  function resetForm() {\\n    document.getElementById('form-title').textContent = 'Añadir uno nuevo';\\n    document.getElementById('form-sub').textContent = 'Si el id ya existe, se actualiza en vez de duplicarse.';\\n    document.getElementById('save-form').reset();\\n    document.getElementById('f-id').readOnly = false;\\n    document.getElementById('save-token').value = S.action_token || '';\\n    document.getElementById('cancel-btn').hidden = true;\\n  }\\n\\n  document.getElementById('cancel-btn').addEventListener('click', resetForm);\\n  document.getElementById('save-form').addEventListener('submit', function () {\\n    if (isSample) return;\\n  });\\n\\n  var FLASH = {\\n    save: ['Guardado.', ''],\\n    delete: ['Borrado.', ''],\\n    denied: ['Acción rechazada: el token no coincide. Recarga la página y vuelve a intentarlo.', 'bad']\\n  };\\n\\n  function renderFlash() {\\n    var hp = new URLSearchParams(location.hash.slice(1));\\n    var f = FLASH[hp.get('f')];\\n    if (!f) return;\\n    var el = document.getElementById('flash');\\n    el.textContent = f[0];\\n    if (f[1]) el.classList.add(f[1]);\\n    el.hidden = false;\\n  }\\n\\n  function sample() {\\n    return {\\n      action_token: '',\\n      applicants: [\\n        { external_id: 'demo-01', email: 'ana@example.com', handle: 'anacooks', platform: 'youtube', followers: 142000 },\\n        { external_id: 'demo-05', email: 'kim@example.com', handle: 'kimknits', platform: 'instagram', followers: 8200 }\\n      ]\\n    };\\n  }\\n\\n  document.getElementById('sample').hidden = !isSample;\\n  document.getElementById('save-token').value = S.action_token || '';\\n  renderRows();\\n  renderFlash();\\n})();\\n</script>\\n</body>\\n</html>\\n\";\n\nconst state = $input.first().json.state ?? {};\nconst json = JSON.stringify(state)\n  .replace(/</g, '\\\\u003c')\n  .replace(/\\u2028/g, '\\\\u2028')\n  .replace(/\\u2029/g, '\\\\u2029');\n\nif (!TEMPLATE.includes('/*__STATE__*/null')) {\n  throw new Error('dashboard template has no state placeholder');\n}\n\nreturn [{ json: { html: TEMPLATE.replace('/*__STATE__*/null', () => json) } }];"
+      },
+      "id": "a9000000-0000-4000-8000-000000000012",
+      "name": "Render the page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "content-type",
+                "value": "text/html; charset=utf-8"
+              },
+              {
+                "name": "cache-control",
+                "value": "no-store"
+              },
+              {
+                "name": "referrer-policy",
+                "value": "no-referrer"
+              },
+              {
+                "name": "x-content-type-options",
+                "value": "nosniff"
+              }
+            ]
+          }
+        }
+      },
+      "id": "a9000000-0000-4000-8000-000000000013",
+      "name": "Serve the page",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "creator-program/fake/admin/action",
+        "authentication": "basicAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a9000000-0000-4000-8000-000000000014",
+      "name": "Fake admin action",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        900,
+        480
+      ],
+      "webhookId": "d9000000-0000-4000-8000-00000000a006",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "creatorDashAuth01",
+          "name": "creator dashboard login"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(jsonb_object_agg(key, value), '{}'::jsonb) AS config\nFROM config;",
+        "options": {}
+      },
+      "id": "a9000000-0000-4000-8000-000000000015",
+      "name": "Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1120,
+        480
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-fake-token-matches",
+              "leftValue": "={{ String($('Fake admin action').first().json.body?.token ?? '') }}",
+              "rightValue": "={{ String($json.config.dashboard_action_token ?? '') }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "c-fake-token-length",
+              "leftValue": "={{ String($json.config.dashboard_action_token ?? '').length }}",
+              "rightValue": 32,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a9000000-0000-4000-8000-000000000016",
+      "name": "Token matches?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1340,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c-fake-action-save",
+                    "leftValue": "={{ String($('Fake admin action').first().json.body?.action ?? '') }}",
+                    "rightValue": "save",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "save"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c-fake-action-delete",
+                    "leftValue": "={{ String($('Fake admin action').first().json.body?.action ?? '') }}",
+                    "rightValue": "delete",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "delete"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a9000000-0000-4000-8000-000000000017",
+      "name": "Which action?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1560,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Upsert, not insert: editing an existing id updates it in place.\nINSERT INTO fake_applicants (external_id, email, handle, platform, followers, updated_at)\nVALUES ($1, $2, $3, $4, $5, now())\nON CONFLICT (external_id) DO UPDATE SET\n  email = EXCLUDED.email, handle = EXCLUDED.handle,\n  platform = EXCLUDED.platform, followers = EXCLUDED.followers,\n  updated_at = now();",
+        "options": {
+          "queryReplacement": "={{ [\n  $('Fake admin action').first().json.body?.external_id,\n  $('Fake admin action').first().json.body?.email,\n  $('Fake admin action').first().json.body?.handle,\n  $('Fake admin action').first().json.body?.platform,\n  Number($('Fake admin action').first().json.body?.followers)\n] }}"
+        }
+      },
+      "id": "a9000000-0000-4000-8000-000000000018",
+      "name": "Upsert applicant",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1780,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM fake_applicants WHERE external_id = $1;",
+        "options": {
+          "queryReplacement": "={{ [$('Fake admin action').first().json.body?.external_id] }}"
+        }
+      },
+      "id": "a9000000-0000-4000-8000-000000000019",
+      "name": "Delete applicant",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1780,
+        560
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "creatorPgCred001",
+          "name": "creator_prod postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "redirect",
+        "redirectURL": "={{ $json.config.editor_base_url }}/webhook/creator-program/fake/admin#f={{ encodeURIComponent(String($('Fake admin action').first().json.body?.action ?? '')) }}",
+        "options": {}
+      },
+      "id": "a9000000-0000-4000-8000-00000000001a",
+      "name": "Back to the page",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2000,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "redirect",
+        "redirectURL": "={{ $json.config.editor_base_url }}/webhook/creator-program/fake/admin#f=denied",
+        "options": {}
+      },
+      "id": "a9000000-0000-4000-8000-00000000001b",
+      "name": "Refuse",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Administrar los solicitantes falsos\n**Fake admin page** enseña la tabla `fake_applicants` → **Read applicants** la lee → **Render the page** la mete en el HTML → **Serve the page** la devuelve.\n\nEl formulario de abajo sirve para **añadir y editar** (mismo id = actualiza) y cada fila tiene su botón de **borrar**. Editar aquí es lo que antes había que hacer tocando el código del nodo `Make applications`.",
+        "width": 700,
+        "height": 340,
+        "color": 7
+      },
+      "id": "5a000000-0000-4000-8000-000000000904",
+      "name": "Nota: mostrar administrar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        900,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Guardar y borrar\n**Fake admin action** recibe el formulario. **Config** lee el código secreto y **Token matches?** comprueba que viene de la página, como en el dashboard. Si no → **Refuse**.\n\n**Which action?** decide entre **Upsert applicant** (crear o actualizar por `external_id`) y **Delete applicant**. **Back to the page** vuelve a la página con el resultado.",
+        "width": 1400,
+        "height": 460,
+        "color": 6
+      },
+      "id": "5a000000-0000-4000-8000-000000000905",
+      "name": "Nota: guardar y borrar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        900,
+        340
+      ]
     }
   ],
   "connections": {
@@ -269,18 +630,7 @@
       "main": [
         [
           {
-            "node": "Make applications",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Make applications": {
-      "main": [
-        [
-          {
-            "node": "Respond applications",
+            "node": "Read fake applicants",
             "type": "main",
             "index": 0
           }
@@ -365,6 +715,130 @@
         [
           {
             "node": "Respond alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read fake applicants": {
+      "main": [
+        [
+          {
+            "node": "Respond applications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fake admin page": {
+      "main": [
+        [
+          {
+            "node": "Read applicants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read applicants": {
+      "main": [
+        [
+          {
+            "node": "Render the page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render the page": {
+      "main": [
+        [
+          {
+            "node": "Serve the page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fake admin action": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Token matches?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token matches?": {
+      "main": [
+        [
+          {
+            "node": "Which action?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Refuse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Which action?": {
+      "main": [
+        [
+          {
+            "node": "Upsert applicant",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Delete applicant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert applicant": {
+      "main": [
+        [
+          {
+            "node": "Back to the page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete applicant": {
+      "main": [
+        [
+          {
+            "node": "Back to the page",
             "type": "main",
             "index": 0
           }
