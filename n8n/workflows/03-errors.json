@@ -127,7 +127,7 @@
     },
     {
       "parameters": {
-        "content": "## 03 errors · la red de seguridad\nNo tiene reloj: n8n lo lanza **solo** cuando 01, 02, 04 o 05 se rompen de forma inesperada (un nodo que falla, la base de datos caída…).\n\nLos fallos previstos (datos inválidos, un servicio que no responde) ya los gestiona cada workflow. Este recoge **todo lo demás**.",
+        "content": "## 03 errors · la red de seguridad\nNo tiene reloj: n8n lo lanza **solo** cuando 01, 02 o 04 se rompen de forma inesperada (un nodo que falla, la base de datos caída…).\n\nLos fallos previstos (datos inválidos, un servicio que no responde) ya los gestiona cada workflow. Este recoge **todo lo demás**.",
         "width": 780,
         "height": 280,
         "color": 5

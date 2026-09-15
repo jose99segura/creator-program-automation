@@ -43,9 +43,6 @@ INSERT INTO config (key, value, note) VALUES
 ('editor_base_url',   'https://n8n.senaproject.online',
  'Used to link alerts to executions. No trailing slash.'),
 
-('prep_model', 'claude-opus-5',
- 'Model for the interview prep simulator. Must support structured outputs and server-side fallbacks.'),
-
 -- Generated once on first insert; the ON CONFLICT below never overwrites it.
 ('dashboard_action_token',
  replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', ''),

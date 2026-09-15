@@ -15,11 +15,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 PAGE = HERE / "page.html"
 WORKFLOW = HERE.parent / "workflows" / "04-dashboard.json"
-PREP_PAGE = HERE.parent / "prep" / "page.html"
-PREP_WORKFLOW = HERE.parent / "workflows" / "05-prep.json"
 FAKE_PAGE = HERE.parent / "fake" / "page.html"
 FAKE_WORKFLOW = HERE.parent / "workflows" / "99-fake-providers.json"
-TARGETS = [(PAGE, WORKFLOW), (PREP_PAGE, PREP_WORKFLOW), (FAKE_PAGE, FAKE_WORKFLOW)]
+TARGETS = [(PAGE, WORKFLOW), (FAKE_PAGE, FAKE_WORKFLOW)]
 NODE = "Render the page"
 PLACEHOLDER = "/*__STATE__*/null"
 

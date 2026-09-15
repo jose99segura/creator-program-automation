@@ -650,7 +650,7 @@ th.r,td.r{text-align:right}
     mount('foot', frag(
       h('span', { text: 'Generado a las ' + timeFmt.format(new Date(S.generated_at || Date.now())) }),
       h('nav', {}, wfLink(WF.pipeline, '01 Pipeline'), wfLink(WF.payout, '02 Pagos'), wfLink(WF.errors, '03 Errores'),
-        h('a', { href: '/webhook/creator-program/prep', text: 'Preparación de entrevista' }))));
+        h('a', { href: 'https://lab.senaproject.online/prep', target: '_blank', rel: 'noopener', text: 'Preparación de entrevista' }))));
   }
 
   // ---- live -----------------------------------------------------------------------------------

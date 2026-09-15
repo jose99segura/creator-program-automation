@@ -298,10 +298,10 @@ tests/                     payouts, the retry path, validation, the n8n graphs
 n8n/                       the same pipeline as three n8n workflows
   README.md                what each workflow does, settings, deploy
   deploy.sh                schema, config, import, activation
-  sql/                     schema, the config table, interview practice
-  dashboard/               the live page, and the script that embeds both pages
-  prep/                    the interview practice page and simulator
-  workflows/               01 pipeline, 02 payout, 03 errors, 04 dashboard, 05 prep
+  sql/                     schema, the config table, the fake applicants
+  dashboard/               the live page, and the script that embeds the pages
+  fake/                    the admin page for the demo's fake applicants
+  workflows/               01 pipeline, 02 payout, 03 errors, 04 dashboard, 99 fake providers
 ```
 
 ## Tests
@@ -310,7 +310,7 @@ n8n/                       the same pipeline as three n8n workflows
 python -m pytest -q
 ```
 
-106 tests, weighted towards the two places where a bug is expensive: the payout
+93 tests, weighted towards the two places where a bug is expensive: the payout
 arithmetic and the failure path. The failure path is the half of any
 automation that only runs when things break, and therefore the half most
 likely to be broken without anyone noticing.

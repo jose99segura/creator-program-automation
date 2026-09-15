@@ -9,14 +9,13 @@ workflows**, one Postgres database, and a page to watch it.
 | `02 payout` | 1st of the month, 04:00 | works out what each creator is owed for last month |
 | `03 errors` | whenever another workflow crashes | records the failure and sends an alert |
 | `04 dashboard` | when you open it | the page below; it does no work of its own |
-| `05 prep` | when you open it | interview practice: theory, a speaking framework, and a simulator that calls Claude |
 | `99 fake providers (demo)` | when called | stand-ins for the application form, platform API, mailer and alert channel, so the demo runs with no external accounts. The platform endpoint fails a quarter of its calls on purpose, so retries and dead letters really happen |
 | ↳ its admin page | when you open it | add, edit or remove the fake applicants it serves |
 
 In production the three URLs in `config` point at `99`. To go live, point
 them at real services and deactivate `99`.
 
-In n8n all six sit directly in the `creator program` folder, with no
+In n8n all five sit directly in the `creator program` folder, with no
 subfolders; `deploy.sh` files them there after every import.
 
 Each workflow explains itself on the n8n canvas: a blue summary note at the
@@ -48,31 +47,6 @@ them using your saved login.
 To change it, edit `dashboard/page.html` (open it straight in a browser to
 preview with made-up data), then run `python n8n/dashboard/build.py` to embed
 it into `04-dashboard.json`. CI fails if you forget to rebuild.
-
-## Interview prep
-
-`https://n8n.senaproject.online/webhook/creator-program/prep`, same login as
-the dashboard and linked from its footer. It is practice material for an
-Automation Engineer interview, built on the same machinery as the rest of this
-directory, and in Spanish:
-
-- **El proceso**, **Patrones** and **Cómo hablar**: static study material.
-- **Simulador**: asks Claude for a new case (product decomposition, a
-  behavioural screen, or a reliability scenario), lets you put clarifying
-  questions to the "client", then grades the answer against a rubric.
-- **Historial**: every attempt, stored in `prep_attempts`, with the weakest
-  rubric area on average.
-
-The flow is the pipeline's patterns at small scale. The page generates the
-attempt id, so a double click is one attempt. `Plan the call` refuses repeats
-before the model is called, so nothing is paid for twice. `Check the reply`
-validates Claude's structured output like any other external input, and
-`Save the attempt` never overwrites an answer or feedback already stored.
-
-It needs one more credential, created by hand: **Header Auth**, id
-`creatorLlmCred01`, name `anthropic api key`, header `x-api-key`. The model is
-the `prep_model` row in `config`. To change the page, edit `prep/page.html`
-and run the same `python n8n/dashboard/build.py`.
 
 ## Fake applicants
 
@@ -153,10 +127,9 @@ SELECT key, value, note FROM config;
 UPDATE config SET value = '8000', updated_at = now() WHERE key = 'min_followers';
 ```
 
-The credentials are `creator_prod postgres` (id `creatorPgCred001`), the
-dashboard login (`creatorDashAuth01`, also used by `05 prep` and the fake
-applicants admin page), and for `05 prep` only, `anthropic api key`
-(`creatorLlmCred01`).
+The credentials are `creator_prod postgres` (id `creatorPgCred001`) and the
+dashboard login (`creatorDashAuth01`, also used by the fake applicants admin
+page).
 
 ## Dealing with failures
 

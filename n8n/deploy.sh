@@ -10,9 +10,8 @@
 # Safe to run again: role and database are created only if missing, the SQL is
 # IF NOT EXISTS, and the workflows have fixed ids so a re-import updates them.
 #
-# Not done here: the three n8n credentials, created once by hand -- the Postgres
-# one (id creatorPgCred001), the dashboard's basic auth (creatorDashAuth01) and
-# the Anthropic API key for 05 prep (creatorLlmCred01, Header Auth, x-api-key).
+# Not done here: the two n8n credentials, created once by hand -- the Postgres
+# one (id creatorPgCred001) and the dashboard's basic auth (creatorDashAuth01).
 
 set -euo pipefail
 
@@ -21,7 +20,7 @@ PG_CONTAINER="${PG_CONTAINER:-yhnvfpxjld6w2dthn71qgcwl}"
 N8N_CONTAINER="${N8N_CONTAINER:-n8n-juqfegd2caaahmtogi2yxgbi}"
 N8N_DB_CONTAINER="${N8N_DB_CONTAINER:-postgresql-juqfegd2caaahmtogi2yxgbi}"
 N8N_FOLDER_ID="${N8N_FOLDER_ID:-fldCreatorRoot}"
-WORKFLOW_IDS="creatorPipeline1 creatorPayout002 creatorErrors003 creatorDash00007 creatorPrep00010 creatorFakes0009"
+WORKFLOW_IDS="creatorPipeline1 creatorPayout002 creatorErrors003 creatorDash00007 creatorFakes0009"
 WORKFLOW_IDS_SQL="'${WORKFLOW_IDS// /\',\'}'"
 DB_NAME="${DB_NAME:-creator_prod}"
 DB_ROLE="${DB_ROLE:-creator_prod}"
@@ -60,7 +59,7 @@ fi
 
 say "schema and config"
 # As the app role, so it owns every table it creates.
-for f in 01-schema.sql 02-config.sql 03-prep.sql 04-fake-applicants.sql; do
+for f in 01-schema.sql 02-config.sql 04-fake-applicants.sql; do
   echo "-- $f"
   docker exec -i -e PGPASSWORD="$CREATOR_DB_PASSWORD" "$PG_CONTAINER" \
     psql -v ON_ERROR_STOP=1 -U "$DB_ROLE" -d "$DB_NAME" < "$HERE/sql/$f"
@@ -78,7 +77,7 @@ docker exec "$N8N_CONTAINER" n8n import:workflow --separate --input=/tmp/creator
 docker exec "$N8N_CONTAINER" rm -rf /tmp/creator-workflows
 
 say "filing the workflows in one folder"
-# All six live directly in "creator program", with no subfolders. Deleting a
+# All five live directly in "creator program", with no subfolders. Deleting a
 # folder in n8n cascades to the workflows inside it, so never delete one that
 # is not empty.
 psql_n8n() { docker exec -i "$N8N_DB_CONTAINER" sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'; }
