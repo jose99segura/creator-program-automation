@@ -60,7 +60,7 @@ def strip_comments(code: str) -> str:
 def test_the_expected_workflows_exist() -> None:
     """A glob that silently matches nothing would turn every test below green."""
     assert [p.stem for p in WORKFLOWS] == [
-        "01-pipeline", "02-payout", "03-errors", "04-dashboard", "99-fake-providers"]
+        "01-pipeline", "02-payout", "03-errors", "04-dashboard", "05-prep", "99-fake-providers"]
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
@@ -153,7 +153,7 @@ def test_config_is_loaded_before_it_is_used(path: Path) -> None:
         assert "Config" in node_names(wf)
 
 
-@pytest.mark.parametrize("stem", ["01-pipeline", "02-payout", "04-dashboard"])
+@pytest.mark.parametrize("stem", ["01-pipeline", "02-payout", "04-dashboard", "05-prep"])
 def test_failures_go_to_the_error_workflow(stem: str) -> None:
     assert workflow(stem)["settings"]["errorWorkflow"] == workflow("03-errors")["id"]
 
@@ -210,20 +210,25 @@ def _load_build():
     return module
 
 
-def test_the_dashboard_workflow_embeds_the_current_page() -> None:
-    """Editing page.html without rebuilding must fail here, not in production."""
+PAGES = [("04-dashboard", DASHBOARD_DIR / "page.html"), ("05-prep", N8N_DIR / "prep" / "page.html")]
+
+
+@pytest.mark.parametrize("stem,page_path", PAGES, ids=[p[0] for p in PAGES])
+def test_the_workflow_embeds_the_current_page(stem: str, page_path: Path) -> None:
+    """Editing a page without rebuilding must fail here, not in production."""
     build = _load_build()
-    page = (DASHBOARD_DIR / "page.html").read_text(encoding="utf-8")
-    assert node(workflow("04-dashboard"), build.NODE)["parameters"]["jsCode"] == build.render_js(page), (
-        "04-dashboard.json is stale: run python n8n/dashboard/build.py")
+    page = page_path.read_text(encoding="utf-8")
+    assert node(workflow(stem), build.NODE)["parameters"]["jsCode"] == build.render_js(page), (
+        f"{stem}.json is stale: run python n8n/dashboard/build.py")
 
 
-def test_the_dashboard_never_writes_html_from_data() -> None:
-    """Handles and error messages come from outside; markup from them is stored XSS."""
-    page = (DASHBOARD_DIR / "page.html").read_text(encoding="utf-8")
+@pytest.mark.parametrize("stem,page_path", PAGES, ids=[p[0] for p in PAGES])
+def test_the_page_never_writes_html_from_data(stem: str, page_path: Path) -> None:
+    """Handles, error messages and model output come from outside; markup from them is stored XSS."""
+    page = page_path.read_text(encoding="utf-8")
     script = page[page.index("<script>"):]
     for forbidden in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"):
-        assert forbidden not in strip_comments(script), f"the dashboard uses {forbidden}"
+        assert forbidden not in strip_comments(script), f"{stem} uses {forbidden}"
 
 
 def test_the_dashboard_escapes_state_for_a_script_element() -> None:
@@ -247,6 +252,60 @@ def test_dashboard_actions_are_behind_auth_and_a_token() -> None:
         assert "httpBasicAuth" in hook.get("credentials", {}), hook["name"]
     assert "dashboard_action_token" in json.dumps(node(wf, "Token matches?"))
     assert "dashboard_action_token" in (N8N_DIR / "sql" / "02-config.sql").read_text(encoding="utf-8")
+
+
+def test_prep_actions_are_behind_auth_and_a_token() -> None:
+    wf = workflow("05-prep")
+    hooks = [n for n in wf["nodes"] if n["type"] == "n8n-nodes-base.webhook"]
+    assert len(hooks) == 2
+    for hook in hooks:
+        assert hook["parameters"].get("authentication") == "basicAuth", hook["name"]
+        assert "httpBasicAuth" in hook.get("credentials", {}), hook["name"]
+    assert "dashboard_action_token" in json.dumps(node(wf, "Token matches?"))
+    assert wf["connections"]["Prep action"]["main"][0][0]["node"] == "Config"
+    assert wf["connections"]["Config"]["main"][0][0]["node"] == "Token matches?"
+
+
+def test_the_api_key_lives_in_a_credential() -> None:
+    """The key is a Header Auth credential; a header typed into the node would be exported with it."""
+    ask = node(workflow("05-prep"), "Ask Claude")
+    assert ask["parameters"]["genericAuthType"] == "httpHeaderAuth"
+    assert "httpHeaderAuth" in ask["credentials"]
+    headers = [h["name"].lower() for h in ask["parameters"]["headerParameters"]["parameters"]]
+    assert "x-api-key" not in headers and "authorization" not in headers
+
+
+def test_the_model_is_only_called_after_a_repeat_check() -> None:
+    """A double click must not pay for the same case, question or grading twice."""
+    wf = workflow("05-prep")
+    assert wf["connections"]["Plan the call"]["main"][0][0]["node"] == "Needs the model?"
+    assert wf["connections"]["Needs the model?"]["main"][0][0]["node"] == "Ask Claude"
+    plan = node(wf, "Plan the call")["parameters"]["jsCode"]
+    assert "if (attempt) return skip('case')" in plan
+    assert "Number(body.turn) !== transcript.length" in plan
+    assert "if (attempt.feedback) return skip('answer')" in plan
+
+
+def test_a_reply_is_validated_before_it_is_saved() -> None:
+    wf = workflow("05-prep")
+    assert wf["connections"]["Ask Claude"]["main"][0][0]["node"] == "Check the reply"
+    assert wf["connections"]["Check the reply"]["main"][0][0]["node"] == "Reply valid?"
+    assert wf["connections"]["Reply valid?"]["main"][0][0]["node"] == "Save the attempt"
+    assert wf["connections"]["Reply valid?"]["main"][1][0]["node"] == "Report the failure"
+
+
+def test_saving_an_attempt_never_overwrites_what_is_there() -> None:
+    query = node(workflow("05-prep"), "Save the attempt")["parameters"]["query"]
+    assert "ON CONFLICT (id) DO UPDATE" in query
+    assert "COALESCE(prep_attempts.feedback, EXCLUDED.feedback)" in query
+    assert "COALESCE(prep_attempts.answer, EXCLUDED.answer)" in query
+
+
+def test_deploy_ships_the_prep_workflow_and_table() -> None:
+    deploy = (N8N_DIR / "deploy.sh").read_text(encoding="utf-8")
+    assert workflow("05-prep")["id"] in deploy
+    assert "03-prep.sql" in deploy
+    assert "prep_model" in (N8N_DIR / "sql" / "02-config.sql").read_text(encoding="utf-8")
 
 
 def test_the_dashboard_button_can_start_the_pipeline() -> None:

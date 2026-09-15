@@ -649,7 +649,8 @@ th.r,td.r{text-align:right}
   function renderFoot() {
     mount('foot', frag(
       h('span', { text: 'Generado a las ' + timeFmt.format(new Date(S.generated_at || Date.now())) }),
-      h('nav', {}, wfLink(WF.pipeline, '01 Pipeline'), wfLink(WF.payout, '02 Pagos'), wfLink(WF.errors, '03 Errores'))));
+      h('nav', {}, wfLink(WF.pipeline, '01 Pipeline'), wfLink(WF.payout, '02 Pagos'), wfLink(WF.errors, '03 Errores'),
+        h('a', { href: '/webhook/creator-program/prep', text: 'Preparación de entrevista' }))));
   }
 
   // ---- live -----------------------------------------------------------------------------------

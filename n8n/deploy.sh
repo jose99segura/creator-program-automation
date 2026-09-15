@@ -10,8 +10,9 @@
 # Safe to run again: role and database are created only if missing, the SQL is
 # IF NOT EXISTS, and the workflows have fixed ids so a re-import updates them.
 #
-# Not done here: the two n8n credentials, created once by hand -- the Postgres
-# one (id creatorPgCred001) and the dashboard's basic auth (creatorDashAuth01).
+# Not done here: the three n8n credentials, created once by hand -- the Postgres
+# one (id creatorPgCred001), the dashboard's basic auth (creatorDashAuth01) and
+# the Anthropic API key for 05 prep (creatorLlmCred01, Header Auth, x-api-key).
 
 set -euo pipefail
 
@@ -55,7 +56,7 @@ fi
 
 say "schema and config"
 # As the app role, so it owns every table it creates.
-for f in 01-schema.sql 02-config.sql; do
+for f in 01-schema.sql 02-config.sql 03-prep.sql; do
   echo "-- $f"
   docker exec -i -e PGPASSWORD="$CREATOR_DB_PASSWORD" "$PG_CONTAINER" \
     psql -v ON_ERROR_STOP=1 -U "$DB_ROLE" -d "$DB_NAME" < "$HERE/sql/$f"
@@ -74,7 +75,7 @@ docker exec "$N8N_CONTAINER" rm -rf /tmp/creator-workflows
 
 say "activating"
 # A re-import leaves every workflow inactive.
-for id in creatorPipeline1 creatorPayout002 creatorErrors003 creatorDash00007 creatorFakes0009; do
+for id in creatorPipeline1 creatorPayout002 creatorErrors003 creatorDash00007 creatorPrep00010 creatorFakes0009; do
   docker exec "$N8N_CONTAINER" n8n publish:workflow --id="$id"
 done
 docker restart "$N8N_CONTAINER"

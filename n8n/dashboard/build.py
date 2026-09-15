@@ -1,10 +1,10 @@
-"""Embed page.html into the dashboard workflow.
+"""Embed the pages into the workflows that serve them.
 
     python n8n/dashboard/build.py
 
-The page is a normal HTML file so it can be edited and previewed in a browser.
+Each page is a normal HTML file so it can be edited and previewed in a browser.
 n8n needs it as a JavaScript string inside a Code node; this script writes that
-string. The test suite fails if the committed workflow is out of date.
+string. The test suite fails if a committed workflow is out of date.
 """
 
 from __future__ import annotations
@@ -15,6 +15,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 PAGE = HERE / "page.html"
 WORKFLOW = HERE.parent / "workflows" / "04-dashboard.json"
+PREP_PAGE = HERE.parent / "prep" / "page.html"
+PREP_WORKFLOW = HERE.parent / "workflows" / "05-prep.json"
+TARGETS = [(PAGE, WORKFLOW), (PREP_PAGE, PREP_WORKFLOW)]
 NODE = "Render the page"
 PLACEHOLDER = "/*__STATE__*/null"
 
@@ -49,19 +52,24 @@ def render_js(page: str) -> str:
     return JS_HEAD + "\nconst TEMPLATE = " + json.dumps(page, ensure_ascii=False) + ";\n" + JS_TAIL
 
 
-def main() -> None:
-    page = PAGE.read_text(encoding="utf-8")
+def embed(page_path: Path, workflow_path: Path) -> None:
+    page = page_path.read_text(encoding="utf-8")
     if PLACEHOLDER not in page:
-        raise SystemExit(f"{PAGE.name} has no {PLACEHOLDER} placeholder")
+        raise SystemExit(f"{page_path} has no {PLACEHOLDER} placeholder")
 
-    wf = json.loads(WORKFLOW.read_text(encoding="utf-8"))
+    wf = json.loads(workflow_path.read_text(encoding="utf-8"))
     nodes = [n for n in wf["nodes"] if n["name"] == NODE]
     if len(nodes) != 1:
-        raise SystemExit(f"expected exactly one node named {NODE!r}, found {len(nodes)}")
+        raise SystemExit(f"expected exactly one node named {NODE!r} in {workflow_path.name}, found {len(nodes)}")
 
     nodes[0]["parameters"]["jsCode"] = render_js(page)
-    WORKFLOW.write_text(json.dumps(wf, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"embedded {PAGE.name} ({len(page):,} chars) into {WORKFLOW.name}")
+    workflow_path.write_text(json.dumps(wf, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"embedded {page_path.parent.name}/{page_path.name} ({len(page):,} chars) into {workflow_path.name}")
+
+
+def main() -> None:
+    for page_path, workflow_path in TARGETS:
+        embed(page_path, workflow_path)
 
 
 if __name__ == "__main__":
