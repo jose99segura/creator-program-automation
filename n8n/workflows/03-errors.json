@@ -143,6 +143,22 @@
     },
     {
       "parameters": {
+        "content": "## Cómo probarlo\nNo se lanza con un horario: se activa cuando otro workflow se rompe. Dos formas:\n\n**A. Rápida:** botón **Execute workflow** aquí mismo. n8n inventa un error de ejemplo y lo pasa por los nodos.\n- **Dead letter** guarda una fila `crashed`\n- **Alert** manda el aviso a **99 fake providers**\n- Ejecútalo **otra vez**: **New failure?** corta y no hay segundo aviso\n\n**B. Real:** en `config` pon una URL rota en `applications_url`, lanza **01 pipeline** y verás el fallo allí. Devuelve la URL después.\n\nCompruébalo en el dashboard (`https://n8n.senaproject.online/webhook/creator-program/dashboard`): *Fallos pendientes*. Límpialo con *Marcar resuelto*.",
+        "height": 326,
+        "width": 620,
+        "color": 4
+      },
+      "id": "note-probar-03-errors",
+      "name": "Nota: probar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        -286
+      ]
+    },
+    {
+      "parameters": {
         "content": "### 1 · Leer el fallo\n**Config** lee la dirección donde se mandan los avisos.\n\n**Read the error** saca qué workflow falló, en qué nodo y con qué mensaje.",
         "width": 620,
         "height": 380,

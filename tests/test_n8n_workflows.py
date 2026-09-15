@@ -101,6 +101,9 @@ def test_every_workflow_explains_itself_on_the_canvas(path: Path) -> None:
     summary = [n for n in notes if n["name"] == "Nota: resumen"]
     assert summary, "no summary sticky note"
     assert len(summary[0]["parameters"]["content"]) > 200, "summary note is too thin to explain anything"
+    testing = [n for n in notes if n["name"] == "Nota: probar"]
+    assert testing, "no note saying how to test it"
+    assert "Cómo probarlo" in testing[0]["parameters"]["content"]
 
 
 @pytest.mark.parametrize(

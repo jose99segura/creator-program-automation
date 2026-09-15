@@ -19,6 +19,10 @@ set -euo pipefail
 # Coolify names containers by resource uuid. Find them with `docker ps`.
 PG_CONTAINER="${PG_CONTAINER:-yhnvfpxjld6w2dthn71qgcwl}"
 N8N_CONTAINER="${N8N_CONTAINER:-n8n-juqfegd2caaahmtogi2yxgbi}"
+N8N_DB_CONTAINER="${N8N_DB_CONTAINER:-postgresql-juqfegd2caaahmtogi2yxgbi}"
+N8N_FOLDER_ID="${N8N_FOLDER_ID:-fldCreatorRoot}"
+WORKFLOW_IDS="creatorPipeline1 creatorPayout002 creatorErrors003 creatorDash00007 creatorPrep00010 creatorFakes0009"
+WORKFLOW_IDS_SQL="'${WORKFLOW_IDS// /\',\'}'"
 DB_NAME="${DB_NAME:-creator_prod}"
 DB_ROLE="${DB_ROLE:-creator_prod}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -73,9 +77,23 @@ docker cp "$HERE/workflows" "$N8N_CONTAINER:/tmp/creator-workflows"
 docker exec "$N8N_CONTAINER" n8n import:workflow --separate --input=/tmp/creator-workflows
 docker exec "$N8N_CONTAINER" rm -rf /tmp/creator-workflows
 
+say "filing the workflows in one folder"
+# All six live directly in "creator program", with no subfolders. Deleting a
+# folder in n8n cascades to the workflows inside it, so never delete one that
+# is not empty.
+psql_n8n() { docker exec -i "$N8N_DB_CONTAINER" sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'; }
+psql_n8n <<SQL
+INSERT INTO folder (id, name, "projectId")
+SELECT '${N8N_FOLDER_ID}', 'creator program', "projectId"
+  FROM shared_workflow WHERE "workflowId" = 'creatorPipeline1'
+ON CONFLICT (id) DO NOTHING;
+UPDATE workflow_entity SET "parentFolderId" = '${N8N_FOLDER_ID}'
+ WHERE id IN (${WORKFLOW_IDS_SQL});
+SQL
+
 say "activating"
 # A re-import leaves every workflow inactive.
-for id in creatorPipeline1 creatorPayout002 creatorErrors003 creatorDash00007 creatorPrep00010 creatorFakes0009; do
+for id in $WORKFLOW_IDS; do
   docker exec "$N8N_CONTAINER" n8n publish:workflow --id="$id"
 done
 docker restart "$N8N_CONTAINER"

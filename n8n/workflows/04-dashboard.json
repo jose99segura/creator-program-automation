@@ -338,6 +338,22 @@
     },
     {
       "parameters": {
+        "content": "## Cómo probarlo\nEste no se ejecuta desde el lienzo: se abre en el navegador.\n1. Abre `https://n8n.senaproject.online/webhook/creator-program/dashboard`. Usuario y contraseña: los de la credencial `creator dashboard login`.\n2. Debe verse: *Cómo funciona*, *Las reglas*, *Un creador de principio a fin*, *Pagos por mes*, *Fallos pendientes* y *Creadores*, con datos reales.\n3. Pulsa *Lanzar el pipeline ahora*: la página vuelve enseguida y en **01 pipeline** → pestaña *Executions* aparece una ejecución nueva.\n4. En *Fallos pendientes* pulsa *Marcar resuelto* en uno: al recargar ya no sale.\n\nSi la página da 404, el workflow está **inactivo**: actívalo arriba a la derecha.",
+        "height": 300,
+        "width": 620,
+        "color": 4
+      },
+      "id": "note-probar-04-dashboard",
+      "name": "Nota: probar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        220,
+        -280
+      ]
+    },
+    {
+      "parameters": {
         "content": "### Mostrar la página\n**Dashboard page** recibe la visita → **Read everything** lee todos los datos en una consulta → **Render the page** los mete en el HTML → **Serve the page** la devuelve.",
         "width": 860,
         "height": 280,

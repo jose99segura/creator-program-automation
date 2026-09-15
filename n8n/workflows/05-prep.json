@@ -409,6 +409,22 @@
     },
     {
       "parameters": {
+        "content": "## Cómo probarlo\nSe abre en el navegador, no desde el lienzo. Necesita la credencial `anthropic api key` con una clave válida.\n1. Abre `https://n8n.senaproject.online/webhook/creator-program/prep` (mismo usuario que el dashboard).\n2. Pestaña *Simulador* → pide un caso. Tarda unos segundos: llama a Claude.\n3. Haz una pregunta al «cliente», escribe una respuesta y pide la corrección.\n4. En *Historial* aparece el intento con su nota.\n5. **Doble clic** en un botón: sigue siendo un solo intento y no se paga dos veces.\n\nSi sale un aviso rojo, mira la ejecución en la pestaña *Executions*: casi siempre es la clave de Anthropic.",
+        "height": 320,
+        "width": 620,
+        "color": 4
+      },
+      "id": "note-probar-05-prep",
+      "name": "Nota: probar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        320,
+        -300
+      ]
+    },
+    {
+      "parameters": {
         "content": "### Mostrar la página\n**Prep page** recibe la visita → **Read attempts** lee los últimos 50 intentos → **Render the page** los mete en el HTML → **Serve the page** la devuelve.",
         "width": 880,
         "height": 280,

@@ -233,6 +233,22 @@
     },
     {
       "parameters": {
+        "content": "## Cómo probarlo\n1. Antes, ejecuta **01 pipeline** al menos una vez: sin posts no hay nada que pagar.\n2. Botón **Execute workflow**. Calcula el **mes anterior al de hoy**, no el actual.\n3. Qué esperar:\n   - **Period**: el día 1 y el último del mes pasado\n   - **Recompute payouts**: una fila por creador con visitas en ese mes\n   - **Within bounds?** va arriba (**Report the total**) si el total es normal, abajo (**Hold for review**) si salta el freno\n4. Compruébalo en el dashboard (`https://n8n.senaproject.online/webhook/creator-program/dashboard`): *Pagos por mes*.\n5. Lánzalo **otra vez**: el total del mes es el mismo, no se duplica.\n\n**Probar el freno:** en la tabla `config` baja `payout_ceiling_cents` a `100`, ejecuta y verás el mes en *Fallos pendientes*. Después devuélvelo a `500000`.",
+        "height": 340,
+        "width": 620,
+        "color": 4
+      },
+      "id": "note-probar-02-payout",
+      "name": "Nota: probar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -220,
+        -320
+      ]
+    },
+    {
+      "parameters": {
         "content": "### 1 · Qué mes\n**Config** lee la tarifa y los límites.\n\n**Period** calcula el mes anterior, del día 1 al último (en hora UTC).",
         "width": 620,
         "height": 480,

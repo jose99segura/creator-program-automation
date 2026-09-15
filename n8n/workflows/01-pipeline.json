@@ -365,6 +365,22 @@
     },
     {
       "parameters": {
+        "content": "## Cómo probarlo\n1. Botón **Execute workflow** (abajo, en el centro). No hace falta nada más: las URLs de `config` apuntan a **99 fake providers**.\n2. Los nodos se ponen verdes de izquierda a derecha. Clic en cualquiera para ver qué entró y qué salió.\n3. Qué esperar de los 8 solicitantes de prueba:\n   - **Screen applicants**: 3 aceptados, 3 a revisión, 2 rechazados\n   - **Create creator** y **Send welcome email**: 3 items\n   - **Fetch posts** falla 1 de cada 4 veces **a propósito**. Si agota los 4 intentos, el creador baja a **Dead letter** (rojo). Es lo normal\n4. Compruébalo en el dashboard (`https://n8n.senaproject.online/webhook/creator-program/dashboard`): *Creadores* (3) y *Fallos pendientes* (los `exhausted` de hoy).\n5. Lánzalo **otra vez**: no aparecen creadores ni posts duplicados.\n\nTambién se prueba desde el dashboard con *Lanzar el pipeline ahora*.",
+        "height": 380,
+        "width": 620,
+        "color": 4
+      },
+      "id": "note-probar-01-pipeline",
+      "name": "Nota: probar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -220,
+        -360
+      ]
+    },
+    {
+      "parameters": {
         "content": "### 1 · Arranque\nTres formas de lanzarlo: el reloj (cada 6 h), a mano, o el botón del dashboard.\n\n**Config** lee la tabla `config`: umbrales, tarifa y URLs.\n\nPara cambiar un ajuste se edita esa tabla, no el workflow.",
         "width": 400,
         "height": 520,

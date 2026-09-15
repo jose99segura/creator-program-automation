@@ -246,6 +246,22 @@
         -720,
         -300
       ]
+    },
+    {
+      "parameters": {
+        "content": "## Cómo probarlo\nNo se ejecuta solo: lo llaman **01**, **02** y **03**. Tiene que estar **activo**, o esos workflows fallan.\n\nPara ver que responde, abre en el navegador:\n`https://n8n.senaproject.online/webhook/creator-program/fake/applications`\nDebe devolver 8 solicitantes de prueba.\n\nPara ver lo que «recibió» (emails, avisos, posts): pestaña *Executions* de este workflow, abre una y mira el último nodo.",
+        "height": 340,
+        "width": 620,
+        "color": 4
+      },
+      "id": "note-probar-99-fake-providers",
+      "name": "Nota: probar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        220,
+        -300
+      ]
     }
   ],
   "connections": {
