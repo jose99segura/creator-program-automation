@@ -14,7 +14,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from .. import queue
+from .. import db, queue
 from ..obs import log
 from ..retry import PermanentError
 
@@ -30,7 +30,10 @@ def handle(conn: sqlite3.Connection, payload: dict) -> None:
         raise PermanentError(f"unknown ingestion source {source!r}")
 
     records = json.loads(SEED_FILE.read_text(encoding="utf-8"))
-    for raw in records:
-        queue.enqueue(conn, "screen", raw)
+    # One transaction: a crash halfway through the batch queues nothing, so
+    # the retry cannot screen the first half twice.
+    with db.transaction(conn):
+        for raw in records:
+            queue.enqueue(conn, "screen", raw)
 
     log.info("batch fanned out", extra={"source": source, "applicants": len(records)})

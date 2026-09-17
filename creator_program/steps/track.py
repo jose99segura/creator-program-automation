@@ -14,6 +14,9 @@ from __future__ import annotations
 
 import sqlite3
 
+from pydantic import ValidationError
+
+from .. import db
 from ..models import PostIn
 from ..obs import log, now
 from ..providers import platform
@@ -38,31 +41,32 @@ def handle(conn: sqlite3.Connection, payload: dict) -> None:
     # treats failure the same way and none of them can get it subtly wrong.
     raw_posts = platform.fetch_posts(creator["tracking_code"])
 
-    stored = 0
+    # Validated one at a time. One malformed post in a response of forty
+    # must not discard the other thirty nine, so this failure is counted and
+    # logged rather than raised.
+    valid = []
     for raw in raw_posts:
-        # Validated one at a time. One malformed post in a response of forty
-        # must not discard the other thirty nine, so this failure is counted
-        # and logged rather than raised.
         try:
-            post = PostIn.model_validate(raw)
-        except Exception as exc:  # noqa: BLE001 - bad data, not a broken run
+            valid.append(PostIn.model_validate(raw))
+        except ValidationError as exc:
             log.error("post failed validation", extra={
                 "creator_id": creator["id"], "raw": raw, "error": str(exc)})
-            continue
 
-        conn.execute(
+    # One transaction for the whole response: one disk sync instead of one
+    # per post, and a crash never leaves half of a poll applied.
+    seen = now()
+    with db.transaction(conn):
+        conn.executemany(
             """INSERT INTO posts (creator_id, platform, external_id, url,
                                   published_at, views, first_seen_at, last_seen_at)
                VALUES (?,?,?,?,?,?,?,?)
                ON CONFLICT (platform, external_id) DO UPDATE SET
                    views = excluded.views,
                    last_seen_at = excluded.last_seen_at""",
-            (creator["id"], creator["platform"], post.external_id, post.url,
-             post.published_at, post.views, now(), now()),
+            [(creator["id"], creator["platform"], post.external_id, post.url,
+              post.published_at, post.views, seen, seen) for post in valid],
         )
-        stored += 1
-    conn.commit()
 
     log.info("posts tracked", extra={
         "creator_id": creator["id"], "tracking_code": creator["tracking_code"],
-        "returned": len(raw_posts), "stored": stored})
+        "returned": len(raw_posts), "stored": len(valid)})

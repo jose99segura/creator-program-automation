@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime, timedelta, timezone
 
 from . import db, obs, queue, runner
+from .retry import PermanentError
 
 
 def cmd_init(conn, args) -> None:
@@ -29,6 +31,40 @@ def cmd_work(conn, args) -> None:
           f"{summary['still_pending']} still queued.")
 
 
+def cmd_track(conn, args) -> None:
+    """Poll every active creator once.
+
+    Onboarding tracks a creator once, but views keep growing for weeks, so
+    this is what a scheduler runs to keep the posts table, and therefore the
+    payouts computed from it, current.
+    """
+    with db.transaction(conn):
+        ids = [row["id"] for row in conn.execute(
+            "SELECT id FROM creators WHERE status = 'active' ORDER BY id")]
+        for creator_id in ids:
+            queue.enqueue(conn, "track", {"creator_id": creator_id})
+    print(f"Queued {len(ids)} track task(s).")
+
+
+def cmd_approve(conn, args) -> None:
+    """Accept an applicant who was sent to review, and onboard them.
+
+    `screen` stops at 'review' because it is not allowed to make that call.
+    Without this command the only way on was an UPDATE by hand.
+    """
+    with db.transaction(conn):
+        updated = conn.execute(
+            """UPDATE submissions SET status = 'accepted', reason = ?
+               WHERE external_id = ? AND status = 'review'""",
+            (f"approved by hand: {args.note}", args.external_id),
+        ).rowcount
+        if updated != 1:
+            raise PermanentError(
+                f"no applicant {args.external_id!r} waiting for review")
+        task_id = queue.enqueue(conn, "onboard", {"external_id": args.external_id})
+    print(f"Approved {args.external_id}; onboard task {task_id} queued.")
+
+
 def cmd_payout(conn, args) -> None:
     task_id = queue.enqueue(conn, "payout", {
         "period_start": args.start, "period_end": args.end})
@@ -44,8 +80,13 @@ def cmd_stats(conn, args) -> None:
     print("\nLast 24h by outcome")
     rows = conn.execute(
         """SELECT kind, status, COUNT(*) n, CAST(AVG(duration_ms) AS INT) avg_ms
-           FROM runs WHERE started_at >= datetime('now', '-1 day')
-           GROUP BY kind, status ORDER BY kind, status""").fetchall()
+           FROM runs WHERE started_at >= ?
+           GROUP BY kind, status ORDER BY kind, status""",
+        # Same format as the stored timestamps. SQLite's datetime('now') puts
+        # a space where they have a 'T', and string comparison then counts
+        # the whole of yesterday.
+        ((datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="seconds"),),
+    ).fetchall()
     for row in rows or []:
         print(f"  {row['kind']:<10} {row['status']:<10} {row['n']:>4}  "
               f"avg {row['avg_ms']}ms")
@@ -149,6 +190,13 @@ def main() -> None:
     p = sub.add_parser("work", help="process every task that is due")
     p.add_argument("--max", type=int, default=1000)
     p.set_defaults(func=cmd_work)
+
+    sub.add_parser("track", help="queue a poll of every active creator").set_defaults(func=cmd_track)
+
+    p = sub.add_parser("approve", help="accept an applicant waiting for review")
+    p.add_argument("external_id")
+    p.add_argument("--note", default="no note")
+    p.set_defaults(func=cmd_approve)
 
     p = sub.add_parser("payout", help="queue a payout run for a period")
     p.add_argument("--start", required=True)

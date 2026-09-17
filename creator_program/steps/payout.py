@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import sqlite3
 
+from .. import db
 from ..config import config
 from ..obs import log, now
 
@@ -36,31 +37,31 @@ def handle(conn: sqlite3.Connection, payload: dict) -> None:
     period_start = payload["period_start"]
     period_end = payload["period_end"]
 
-    creators = conn.execute(
-        "SELECT * FROM creators WHERE status = 'active'").fetchall()
+    # One aggregate query rather than one per creator, and the arithmetic
+    # stays in `amount_cents` so there is a single definition of the money.
+    rows = conn.execute(
+        """SELECT c.id, c.rate_cents_per_1k,
+                  COUNT(p.id) AS posts, COALESCE(SUM(p.views), 0) AS views
+           FROM creators c
+           LEFT JOIN posts p ON p.creator_id = c.id
+                            AND p.published_at >= ? AND p.published_at < ?
+           WHERE c.status = 'active'
+           GROUP BY c.id, c.rate_cents_per_1k""",
+        (period_start, period_end),
+    ).fetchall()
 
-    computed = skipped = 0
-    for creator in creators:
-        row = conn.execute(
-            """SELECT COUNT(*) AS posts, COALESCE(SUM(views), 0) AS views
-               FROM posts
-               WHERE creator_id = ? AND published_at >= ? AND published_at < ?""",
-            (creator["id"], period_start, period_end),
-        ).fetchone()
+    due = [(row, amount_cents(row["views"], row["rate_cents_per_1k"])) for row in rows]
+    # Below the floor the transfer fee exceeds the transfer, so nothing is
+    # written. The views are not carried into the next period: periods do
+    # not overlap, so a creator who never clears the minimum is never paid.
+    payable = [(row, cents) for row, cents in due if cents >= config.min_payout_cents]
 
-        cents = amount_cents(row["views"], creator["rate_cents_per_1k"])
-        if cents < config.min_payout_cents:
-            # Below the floor the transfer fee exceeds the transfer. The
-            # views are not lost: they stay in the posts table, so the next
-            # period recomputes over the same rows if the window includes
-            # them.
-            skipped += 1
-            continue
-
-        # ON CONFLICT makes a second run for the same period an update rather
-        # than a second payout. This is the constraint that stands between a
-        # retry and paying somebody twice.
-        conn.execute(
+    # ON CONFLICT makes a second run for the same period an update rather
+    # than a second payout. This is the constraint that stands between a
+    # retry and paying somebody twice. One transaction, so either every
+    # creator's row reflects this run or none does.
+    with db.transaction(conn):
+        conn.executemany(
             """INSERT INTO payouts (creator_id, period_start, period_end,
                                     post_count, total_views, amount_cents, computed_at)
                VALUES (?,?,?,?,?,?,?)
@@ -69,13 +70,11 @@ def handle(conn: sqlite3.Connection, payload: dict) -> None:
                    total_views = excluded.total_views,
                    amount_cents = excluded.amount_cents,
                    computed_at = excluded.computed_at""",
-            (creator["id"], period_start, period_end, row["posts"],
-             row["views"], cents, now()),
+            [(row["id"], period_start, period_end, row["posts"], row["views"],
+              cents, now()) for row, cents in payable],
         )
-        computed += 1
-    conn.commit()
 
     log.info("payouts computed", extra={
         "period_start": period_start, "period_end": period_end,
-        "creators": len(creators), "computed": computed,
-        "below_minimum": skipped})
+        "creators": len(rows), "computed": len(payable),
+        "below_minimum": len(rows) - len(payable)})

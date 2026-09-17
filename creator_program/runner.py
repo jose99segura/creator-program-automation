@@ -111,6 +111,7 @@ def drain(conn: sqlite3.Connection, max_tasks: int = 1000) -> dict:
     # Counters are per process, so a second drain would otherwise report
     # the first one's numbers again. The summary is this drain's delta.
     before = dict(obs.counters)
+    problems_before = len(obs.problems())
     processed = 0
     while processed < max_tasks and run_one(conn):
         processed += 1
@@ -125,5 +126,7 @@ def drain(conn: sqlite3.Connection, max_tasks: int = 1000) -> dict:
         "dead_lettered": delta("dead_lettered"),
         "still_pending": queue.pending_count(conn),
     }
-    obs.notify(summary)
+    # Only this drain's problems: an earlier drain in the same process has
+    # already alerted on its own, and an empty drain must stay quiet.
+    obs.notify(summary, obs.problems()[problems_before:])
     return summary

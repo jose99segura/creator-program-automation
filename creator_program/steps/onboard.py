@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 
-from .. import queue
+from .. import db, queue
 from ..config import config
 from ..obs import log, now
 from ..providers import mailer
@@ -47,22 +47,61 @@ def handle(conn: sqlite3.Connection, payload: dict) -> None:
             f"submission {external_id!r} is {row['status']}, not accepted")
 
     code = tracking_code(external_id)
-    conn.execute(
-        """INSERT OR IGNORE INTO creators
-           (submission_id, email, handle, platform, tracking_code,
-            rate_cents_per_1k, onboarded_at)
-           VALUES (?,?,?,?,?,?,?)""",
-        (row["id"], row["email"], row["handle"], row["platform"], code,
-         config.rate_cents_per_1k, now()),
-    )
-    conn.commit()
+    with db.transaction(conn):
+        # Identity here is the tracking code, a pure function of external_id
+        # -- not the email. The email is exactly the field a human might
+        # correct between a failed send and a replay, so looking this up by
+        # email would miss the row that attempt already created and collide
+        # with it on the UNIQUE tracking_code instead.
+        creator = conn.execute(
+            "SELECT * FROM creators WHERE tracking_code = ?", (code,)
+        ).fetchone()
 
-    creator = conn.execute(
-        "SELECT * FROM creators WHERE email = ?", (row["email"],)
-    ).fetchone()
+        if creator is None:
+            # A *different* application already claims this email. Carrying
+            # on would email this application's code, which is stored
+            # nowhere, and every post tagged with it would go unpaid. A human
+            # decides whether it is a duplicate or a typo.
+            clash = conn.execute(
+                "SELECT id FROM creators WHERE email = ?", (row["email"],)
+            ).fetchone()
+            if clash is not None:
+                raise PermanentError(
+                    f"{row['email']!r} already belongs to creator "
+                    f"{clash['id']} from another application")
+
+            conn.execute(
+                """INSERT INTO creators
+                   (submission_id, email, handle, platform, tracking_code,
+                    rate_cents_per_1k, onboarded_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (row["id"], row["email"], row["handle"], row["platform"], code,
+                 config.rate_cents_per_1k, now()),
+            )
+            creator = conn.execute(
+                "SELECT * FROM creators WHERE tracking_code = ?", (code,)
+            ).fetchone()
+        elif creator["email"] != row["email"]:
+            # The submission was corrected since this creator was first
+            # created (e.g. after a rejected-address replay). The submission
+            # is the source of truth, so sync it -- otherwise a corrected
+            # address would replay forever against the one that failed.
+            clash = conn.execute(
+                "SELECT id FROM creators WHERE email = ? AND id != ?",
+                (row["email"], creator["id"]),
+            ).fetchone()
+            if clash is not None:
+                raise PermanentError(
+                    f"{row['email']!r} already belongs to creator "
+                    f"{clash['id']} from another application")
+            conn.execute("UPDATE creators SET email = ? WHERE id = ?",
+                        (row["email"], creator["id"]))
+            creator = conn.execute(
+                "SELECT * FROM creators WHERE id = ?", (creator["id"],)
+            ).fetchone()
 
     # The email goes last, after the creator exists. If it fails, a replay
-    # re-runs the whole step: the INSERT OR IGNORE is a no-op and only the
+    # re-runs the whole step: the lookup above is then a no-op and only the
     # email is retried. Sending first would risk welcoming somebody the
     # database does not have.
     mailer.send_welcome(creator["email"], creator["handle"], code)

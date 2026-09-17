@@ -106,3 +106,45 @@ def test_a_claimed_task_is_not_handed_out_again(conn):
     queue.enqueue(conn, "ingest", {"source": "seed"})
     assert queue.claim(conn) is not None
     assert queue.claim(conn) is None
+
+
+def test_a_task_whose_worker_died_is_recovered(conn):
+    """A crash mid-task costs one attempt, not the task.
+
+    Without lease recovery the row stays 'running' forever: never retried,
+    never dead lettered, and invisible to `dlq`.
+    """
+    from creator_program.config import config
+
+    task_id = queue.enqueue(conn, "track", {"creator_id": 1})
+    assert queue.claim(conn) is not None  # ...and the worker is killed here
+
+    long_ago = "2000-01-01T00:00:00+00:00"
+    conn.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (long_ago, task_id))
+    assert queue.recover_expired(conn) == 1
+
+    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    assert row["status"] == "pending"
+    assert row["attempts"] == 1
+    assert f"{config.lease_seconds}s" in row["last_error"]
+
+
+def test_a_live_lease_is_left_alone(conn):
+    queue.enqueue(conn, "track", {"creator_id": 1})
+    queue.claim(conn)
+    assert queue.recover_expired(conn) == 0
+
+
+def test_each_drain_alerts_only_on_its_own_problems(conn, monkeypatch):
+    """A second drain must not repeat the first one's alert."""
+    from creator_program import obs, runner
+
+    sent = []
+    monkeypatch.setattr(obs, "notify", lambda summary, problems: sent.append(problems))
+
+    queue.enqueue(conn, "no-such-step", {})
+    runner.drain(conn)
+    runner.drain(conn)
+
+    assert len(sent[0]) == 1
+    assert sent[1] == []

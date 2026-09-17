@@ -19,7 +19,7 @@ import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
-from . import obs
+from . import db, obs
 from .config import config
 from .retry import backoff_seconds
 
@@ -35,7 +35,8 @@ def enqueue(conn: sqlite3.Connection, kind: str, payload: dict,
         (kind, json.dumps(payload), due.isoformat(timespec="seconds"),
          obs.now(), obs.now(), config.max_attempts),
     )
-    conn.commit()
+    # No commit: inside `db.transaction` this lands with the work that caused
+    # it, so a step cannot store its result and lose the follow-up task.
     return int(cur.lastrowid)
 
 
@@ -49,24 +50,46 @@ def claim(conn: sqlite3.Connection) -> sqlite3.Row | None:
 
     `status = 'running'` is set before the handler runs, so a process that is
     killed mid-task leaves visible evidence rather than a task that looks
-    pending and quietly ran twice.
+    pending and quietly ran twice. Evidence alone would strand it, though, so
+    an expired lease is recovered first: see `recover_expired`.
     """
-    conn.execute("BEGIN IMMEDIATE")
-    row = conn.execute(
-        """SELECT * FROM tasks
-           WHERE status = 'pending' AND next_attempt_at <= ?
-           ORDER BY next_attempt_at, id LIMIT 1""",
-        (obs.now(),),
-    ).fetchone()
-    if row is None:
-        conn.execute("COMMIT")
-        return None
-    conn.execute(
-        "UPDATE tasks SET status = 'running', updated_at = ? WHERE id = ?",
-        (obs.now(), row["id"]),
-    )
-    conn.execute("COMMIT")
+    recover_expired(conn)
+    with db.transaction(conn):
+        row = conn.execute(
+            """SELECT * FROM tasks
+               WHERE status = 'pending' AND next_attempt_at <= ?
+               ORDER BY next_attempt_at, id LIMIT 1""",
+            (obs.now(),),
+        ).fetchone()
+        if row is not None:
+            conn.execute(
+                "UPDATE tasks SET status = 'running', updated_at = ? WHERE id = ?",
+                (obs.now(), row["id"]),
+            )
     return row
+
+
+def recover_expired(conn: sqlite3.Connection) -> int:
+    """Fail tasks whose worker died mid-run. Returns how many.
+
+    Without this a killed process leaves its task 'running' forever: never
+    retried, never dead lettered, invisible to `dlq`. Recovering it through
+    `fail` rather than resetting it to pending means it spends an attempt, so
+    a task that crashes the worker every time ends in the dead letter instead
+    of taking the worker down on every drain.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=config.lease_seconds)
+              ).isoformat(timespec="seconds")
+    stale = conn.execute(
+        "SELECT * FROM tasks WHERE status = 'running' AND updated_at <= ?",
+        (cutoff,),
+    ).fetchall()
+    for task in stale:
+        error = f"lease expired after {config.lease_seconds}s: worker died mid-task"
+        outcome = fail(conn, task, error)
+        obs.record(conn, task["id"], task["kind"],
+                   "transient" if outcome == "retry" else "permanent", 0, error)
+    return len(stale)
 
 
 def complete(conn: sqlite3.Connection, task_id: int) -> None:
@@ -74,7 +97,6 @@ def complete(conn: sqlite3.Connection, task_id: int) -> None:
         "UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ?",
         (obs.now(), task_id),
     )
-    conn.commit()
 
 
 def fail(conn: sqlite3.Connection, task: sqlite3.Row, error: str,
@@ -91,19 +113,21 @@ def fail(conn: sqlite3.Connection, task: sqlite3.Row, error: str,
     exhausted = attempts >= task["max_attempts"]
 
     if permanent or exhausted:
-        conn.execute(
-            """INSERT INTO dead_letters (task_id, kind, payload, attempts, error,
-                                         reason, created_at)
-               VALUES (?,?,?,?,?,?,?)""",
-            (task["id"], task["kind"], task["payload"], attempts, error,
-             "permanent" if permanent else "exhausted", obs.now()),
-        )
-        conn.execute(
-            """UPDATE tasks SET status = 'done', attempts = ?, last_error = ?,
-                                updated_at = ? WHERE id = ?""",
-            (attempts, error, obs.now(), task["id"]),
-        )
-        conn.commit()
+        # One transaction: a crash between these two would leave a dead
+        # letter for a task that still looks like it is running.
+        with db.transaction(conn):
+            conn.execute(
+                """INSERT INTO dead_letters (task_id, kind, payload, attempts, error,
+                                             reason, created_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (task["id"], task["kind"], task["payload"], attempts, error,
+                 "permanent" if permanent else "exhausted", obs.now()),
+            )
+            conn.execute(
+                """UPDATE tasks SET status = 'done', attempts = ?, last_error = ?,
+                                    updated_at = ? WHERE id = ?""",
+                (attempts, error, obs.now(), task["id"]),
+            )
         obs.counters["dead_lettered"] += 1
         return "dead"
 
@@ -114,7 +138,6 @@ def fail(conn: sqlite3.Connection, task: sqlite3.Row, error: str,
                             next_attempt_at = ?, updated_at = ? WHERE id = ?""",
         (attempts, error, due.isoformat(timespec="seconds"), obs.now(), task["id"]),
     )
-    conn.commit()
     obs.counters["retried"] += 1
     return "retry"
 
@@ -126,18 +149,20 @@ def replay(conn: sqlite3.Connection, dead_letter_id: int) -> int:
     credential rotated, a bug shipped, a creator created -- the work is
     recoverable without anyone writing SQL by hand.
     """
-    row = conn.execute(
-        "SELECT * FROM dead_letters WHERE id = ? AND replayed_at IS NULL",
-        (dead_letter_id,),
-    ).fetchone()
-    if row is None:
-        raise ValueError(f"dead letter {dead_letter_id} not found, or already replayed")
-
-    task_id = enqueue(conn, row["kind"], json.loads(row["payload"]))
-    conn.execute("UPDATE dead_letters SET replayed_at = ? WHERE id = ?",
-                 (obs.now(), dead_letter_id))
-    conn.commit()
-    return task_id
+    # Mark and enqueue in one transaction, marking first: two operators
+    # replaying the same row at once cannot both pass the check, and a crash
+    # cannot leave a requeued task whose dead letter still offers a replay.
+    with db.transaction(conn):
+        row = conn.execute(
+            "SELECT * FROM dead_letters WHERE id = ? AND replayed_at IS NULL",
+            (dead_letter_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(
+                f"dead letter {dead_letter_id} not found, or already replayed")
+        conn.execute("UPDATE dead_letters SET replayed_at = ? WHERE id = ?",
+                     (obs.now(), dead_letter_id))
+        return enqueue(conn, row["kind"], json.loads(row["payload"]))
 
 
 def pending_count(conn: sqlite3.Connection) -> int:

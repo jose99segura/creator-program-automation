@@ -89,6 +89,13 @@ the duration of the backoff, and loses its attempt count if the process dies.
 Persisting `attempts` and `next_attempt_at` means the wait costs nothing and
 survives a restart.
 
+A worker that dies mid-task is covered too: a task still `running` after
+`LEASE_SECONDS` is failed as transient, so the crash costs one attempt rather
+than stranding the task.
+
+A step's writes and the task it queues next share one transaction, so a crash
+can never store a result and lose the follow-up.
+
 ### Transient and permanent are different, and only the runner decides
 
 ```
@@ -115,7 +122,7 @@ guarantees it rather than the code remembering to check:
 
 | Step | What makes it safe |
 |---|---|
-| `screen` | `UNIQUE(external_id)` plus `INSERT OR IGNORE` |
+| `screen` | `UNIQUE(external_id)` plus `INSERT OR IGNORE`, and onboarding is queued only by the run that stored the row |
 | `onboard` | tracking code is `sha1(external_id)`, so it is the same code every time |
 | `track` | `UNIQUE(platform, external_id)` plus `ON CONFLICT DO UPDATE` |
 | `payout` | `UNIQUE(creator, period)` plus a recompute from posts |
@@ -272,6 +279,8 @@ piece of work rather than a bigger version of this one.
 python -m creator_program init                 # create the tables
 python -m creator_program ingest               # queue a batch of applications
 python -m creator_program work                 # process everything that is due
+python -m creator_program track                # poll every active creator again
+python -m creator_program approve APP-1004     # accept an applicant waiting for review
 python -m creator_program payout --start 2026-01-01 --end 2027-01-01
 python -m creator_program payouts              # what has been computed
 python -m creator_program stats                # queue depth, outcomes, totals
@@ -310,7 +319,7 @@ n8n/                       the same pipeline as three n8n workflows
 python -m pytest -q
 ```
 
-93 tests, weighted towards the two places where a bug is expensive: the payout
+100 tests, weighted towards the two places where a bug is expensive: the payout
 arithmetic and the failure path. The failure path is the half of any
 automation that only runs when things break, and therefore the half most
 likely to be broken without anyone noticing.

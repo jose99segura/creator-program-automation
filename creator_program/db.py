@@ -11,6 +11,8 @@ that swap, which is the point of keeping the queue behind four functions.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import contextmanager
+from collections.abc import Iterator
 from pathlib import Path
 
 from .config import config
@@ -23,13 +25,37 @@ def connect(path: str | None = None) -> sqlite3.Connection:
     # Rows by column name. Positional access makes a query and its consumer
     # silently disagree the moment a column is added in the middle.
     conn.row_factory = sqlite3.Row
-    # Without this SQLite does not enforce the UNIQUE-backed idempotency the
-    # schema relies on across statements in a transaction.
+    # SQLite ignores REFERENCES clauses unless this is on, per connection.
+    # Without it a post can point at a creator that does not exist, and the
+    # payout join silently drops it.
     conn.execute("PRAGMA foreign_keys = ON")
     # WAL lets a reader run while a writer holds the database, which is what
     # makes `stats` usable from another terminal while `work` is draining.
     conn.execute("PRAGMA journal_mode = WAL")
     return conn
+
+
+@contextmanager
+def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
+    """Several statements that must land together, or not at all.
+
+    The connection is in autocommit mode (`isolation_level=None`), so every
+    statement outside this block is its own transaction and `conn.commit()`
+    does nothing. That is the right default for single writes, and exactly
+    wrong for "insert the dead letter, then retire the task": a crash between
+    the two would leave both. Helpers such as `queue.enqueue` therefore never
+    commit themselves, so they compose inside this block.
+
+    It is also the cheap way to write many rows: one fsync for a batch of
+    posts instead of one per post.
+    """
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        yield conn
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    conn.execute("COMMIT")
 
 
 def init(conn: sqlite3.Connection) -> None:

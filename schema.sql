@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS submissions (
 -- posts are recognised later, and is unique per creator.
 CREATE TABLE IF NOT EXISTS creators (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    submission_id       INTEGER NOT NULL,
+    submission_id       INTEGER NOT NULL REFERENCES submissions (id),
     email               TEXT NOT NULL UNIQUE,
     handle              TEXT NOT NULL,
     platform            TEXT NOT NULL,
@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS creators (
 -- happened to run.
 CREATE TABLE IF NOT EXISTS posts (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    creator_id    INTEGER NOT NULL,
+    creator_id    INTEGER NOT NULL REFERENCES creators (id),
     platform      TEXT NOT NULL,
     external_id   TEXT NOT NULL,
     url           TEXT NOT NULL,
@@ -133,7 +133,7 @@ CREATE INDEX IF NOT EXISTS idx_posts_creator ON posts (creator_id, published_at)
 -- accumulated into a running total that could drift.
 CREATE TABLE IF NOT EXISTS payouts (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    creator_id   INTEGER NOT NULL,
+    creator_id   INTEGER NOT NULL REFERENCES creators (id),
     period_start TEXT NOT NULL,
     period_end   TEXT NOT NULL,
     post_count   INTEGER NOT NULL,

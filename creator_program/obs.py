@@ -83,7 +83,6 @@ def record(conn, task_id: int | None, kind: str, status: str,
            VALUES (?,?,?,?,?,?)""",
         (task_id, kind, status, duration_ms, error, now()),
     )
-    conn.commit()
 
     counters[f"task.{status}"] += 1
     fields = {"task_id": task_id, "kind": kind, "status": status,
@@ -106,7 +105,7 @@ def reset() -> None:
     _problems.clear()
 
 
-def notify(summary: dict) -> None:
+def notify(summary: dict, problems: list[dict]) -> None:
     """One message at the end of a drain, if anything went wrong.
 
     One per drain rather than one per failure on purpose: an outage at the
@@ -119,12 +118,12 @@ def notify(summary: dict) -> None:
     """
     from .config import config
 
-    if not _problems:
+    if not problems:
         log.info("drain finished clean", extra=summary)
         return
 
-    kinds = Counter(p["kind"] for p in _problems)
-    text = (f"creator-program: {len(_problems)} problem(s) in this run -- "
+    kinds = Counter(p["kind"] for p in problems)
+    text = (f"creator-program: {len(problems)} problem(s) in this run -- "
             + ", ".join(f"{k} x{n}" for k, n in kinds.items()))
     print(text, file=sys.stderr)
 
@@ -134,7 +133,7 @@ def notify(summary: dict) -> None:
         import urllib.request
 
         body = json.dumps({"text": text, "summary": summary,
-                           "problems": _problems}).encode()
+                           "problems": problems}).encode()
         req = urllib.request.Request(
             config.alert_webhook_url, data=body,
             headers={"Content-Type": "application/json"})

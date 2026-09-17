@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import random
+from functools import cache
 from pathlib import Path
 
 from ..config import config
@@ -30,6 +31,7 @@ SEED_FILE = Path(__file__).resolve().parent.parent.parent / "seed" / "platform_p
 _rng = random.Random(config.platform_seed)
 
 
+@cache
 def _load() -> dict[str, list[dict]]:
     return json.loads(SEED_FILE.read_text(encoding="utf-8"))
 

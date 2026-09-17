@@ -43,6 +43,11 @@ class Config:
     # --- queue -----------------------------------------------------------
     max_attempts: int = _int("MAX_ATTEMPTS", 4)
     backoff_base_seconds: float = _float("BACKOFF_BASE_SECONDS", 2.0)
+    # A task still 'running' this long after it was claimed belongs to a
+    # worker that died. It is failed as transient and retried, so a crash
+    # costs one attempt rather than the task. Keep it well above the slowest
+    # step, or a slow task is handed out twice.
+    lease_seconds: int = _int("LEASE_SECONDS", 600)
 
     # --- the fake platform API ------------------------------------------
     # The provider fails this often, deterministically seeded, so that the

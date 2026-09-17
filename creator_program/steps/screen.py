@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from .. import queue
+from .. import db, queue
 from ..config import config
 from ..models import SubmissionIn
 from ..obs import log, now
@@ -45,27 +45,29 @@ def handle(conn: sqlite3.Connection, payload: dict) -> None:
     status, reason = decide(submission.followers)
 
     # INSERT OR IGNORE plus a UNIQUE external_id is the whole of idempotency
-    # here. Replaying the same batch, or retrying this task after a crash
-    # between the insert and the enqueue, stores the applicant once.
-    conn.execute(
-        """INSERT OR IGNORE INTO submissions
-           (external_id, email, handle, platform, followers, status, reason, raw, created_at)
-           VALUES (?,?,?,?,?,?,?,?,?)""",
-        (submission.external_id, str(submission.email), submission.handle,
-         submission.platform, submission.followers, status, reason,
-         json.dumps(payload), now()),
-    )
-    conn.commit()
+    # here. Replaying the same batch stores the applicant once.
+    #
+    # The follow-up is only enqueued when this run stored the row. Otherwise
+    # re-reading a feed would onboard every accepted applicant again, and a
+    # welcome email is not idempotent. The insert and the enqueue share a
+    # transaction, so a crash cannot store the applicant and lose the task.
+    with db.transaction(conn):
+        inserted = conn.execute(
+            """INSERT OR IGNORE INTO submissions
+               (external_id, email, handle, platform, followers, status, reason, raw, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (submission.external_id, str(submission.email), submission.handle,
+             submission.platform, submission.followers, status, reason,
+             json.dumps(payload), now()),
+        ).rowcount == 1
+
+        # 'review' deliberately enqueues nothing. The applicant waits for a
+        # human, who moves them on with `approve`. A step that cannot proceed
+        # without a decision it is not allowed to make should stop, not guess.
+        if inserted and status == "accepted":
+            queue.enqueue(conn, "onboard", {"external_id": submission.external_id})
 
     log.info("applicant screened", extra={
         "external_id": submission.external_id, "handle": submission.handle,
         "platform": submission.platform, "followers": submission.followers,
-        "decision": status})
-
-    if status == "accepted":
-        queue.enqueue(conn, "onboard", {"external_id": submission.external_id})
-
-    # 'review' deliberately enqueues nothing. The applicant sits in the table
-    # waiting for a human, and the pipeline is done with them. A step that
-    # cannot proceed without a decision it is not allowed to make should stop,
-    # not guess.
+        "decision": status, "duplicate": not inserted})
